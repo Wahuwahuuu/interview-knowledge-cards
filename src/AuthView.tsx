@@ -44,6 +44,6 @@ export function AuthView({ onLogin, setup }: { onLogin: () => Promise<void>; set
       {error && <div className="notice error" role="alert">{error}</div>}
       <button type="submit" className="primary auth-submit" disabled={busy || (bootstrap && !bootstrapAccount)}>{busy ? '正在处理…' : bootstrap ? '设置密码并进入题库' : mode === 'login' ? '登录' : '注册并进入题库'}<ArrowRight size={17} /></button>
     </form>
-    {!bootstrap && <><p className="microcopy">{registrationOpen ? '邮箱作为登录账号使用，请妥善保存密码。' : '新用户注册暂时关闭。'}</p><a className="text-button" href="/bootstrap-admin/">管理员首次设置</a></>}
+    {!bootstrap && <p className="microcopy">{registrationOpen ? '邮箱作为登录账号使用，请妥善保存密码。' : '新用户注册暂时关闭。'}</p>}
   </section></div>;
 }
