@@ -1,0 +1,16 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE library_meta (id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL DEFAULT 0);
+INSERT INTO library_meta (id, revision) VALUES (1, 0);
+CREATE TABLE mutation_guard (id TEXT PRIMARY KEY, ok INTEGER NOT NULL CHECK (ok=1));
+CREATE TABLE projects (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE topics (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE sources (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE cards (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX cards_project ON cards(project_id);
+CREATE TABLE card_topics (card_id TEXT NOT NULL REFERENCES cards(id), topic_id TEXT NOT NULL REFERENCES topics(id), PRIMARY KEY(card_id,topic_id));
+CREATE TABLE occurrences (id TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES cards(id), source_id TEXT NOT NULL REFERENCES sources(id), revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX occurrences_card ON occurrences(card_id);
+CREATE TABLE relations (id TEXT PRIMARY KEY, from_card_id TEXT NOT NULL REFERENCES cards(id), to_card_id TEXT NOT NULL REFERENCES cards(id), revision INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE card_revisions (card_id TEXT NOT NULL REFERENCES cards(id), revision INTEGER NOT NULL, saved_at TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(card_id,revision));
+CREATE TABLE import_batches (id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK (status IN ('pending','applied','cancelled')), base_revision INTEGER NOT NULL, digest TEXT NOT NULL, created_at TEXT NOT NULL, applied_at TEXT, payload TEXT NOT NULL, preview TEXT NOT NULL);
+CREATE INDEX import_status ON import_batches(status,created_at);

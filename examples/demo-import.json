@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "batch_id": "demo-backend-v1",
+  "mode": "merge",
+  "projects": [
+    {
+      "id": "demo-backend",
+      "name": "示例后端项目",
+      "description": "虚构演示资料，用于体验项目书架、翻卡与知识图谱。"
+    }
+  ],
+  "topics": [
+    {
+      "id": "async-tasks",
+      "name": "异步任务"
+    },
+    {
+      "id": "bounded-queue",
+      "name": "有界队列"
+    },
+    {
+      "id": "model-concurrency",
+      "name": "并发控制"
+    },
+    {
+      "id": "endpoint-balancing",
+      "name": "负载分配"
+    },
+    {
+      "id": "timeouts-retries",
+      "name": "超时与重试"
+    },
+    {
+      "id": "fallback-review",
+      "name": "降级策略"
+    }
+  ],
+  "cards": [
+    {
+      "id": "demo-performance",
+      "project_id": "demo-backend",
+      "title": "请求增长与任务排队",
+      "question": "异步任务服务的请求增多后，应从哪些方面分析响应延迟与排队？",
+      "summary_md": "先区分请求响应时间、等待时间和任务执行时间。\n\n1. 查看队列长度、执行耗时与错误率。\n2. 根据资源容量设置有界队列及并发上限。\n3. 控制超时、重试与慢任务影响。\n4. 用观测数据验证策略。",
+      "answer_md": "这是演示内容。\n\n异步接口返回任务标识并不意味着任务已经完成。分析延迟时，应分别观测提交接口、任务等待和实际执行。对瓶颈先提出可验证的假设，再通过指标或压测检查。\n\n并发控制需要考虑单进程与多实例部署的区别，不能把单个实例的上限当成全局上限。不要在缺少观测数据时承诺性能提升比例。",
+      "limitations_md": "演示内容，不对应真实项目或个人经历。具体策略需要根据实际实现与测试数据确定。",
+      "topic_ids": [
+        "async-tasks",
+        "bounded-queue",
+        "model-concurrency",
+        "endpoint-balancing",
+        "timeouts-retries"
+      ],
+      "source_baseline": "虚构演示 v1",
+      "evidence": []
+    },
+    {
+      "id": "demo-fallback",
+      "project_id": "demo-backend",
+      "title": "依赖失败时的降级",
+      "question": "如果异步任务依赖的外部服务失败，你会怎样设计降级和恢复策略？",
+      "summary_md": "先明确哪些结果可以可靠给出。\n\n- 允许回退时，使用经过验证的替代路径。\n- 不能可靠继续时，记录失败原因并终止或等待人工处理。\n- 区分重试、延后执行与改变输出能力。\n- 将降级状态传递给调用方。",
+      "answer_md": "这是演示内容。\n\n降级策略应由业务允许的结果边界决定。依赖失败后，可以在条件允许时使用替代服务、确定性规则或缓存；若无法可靠得出结果，应明确标记失败或待处理。\n\n重试需要限制次数并避免放大流量。排队只是延后执行，不必然意味着减少任务能力。恢复时还需要检查状态是否准确传递给界面。",
+      "limitations_md": "演示内容，不暗示任何项目已实现这些功能。使用前需核对自己的源码及业务要求。",
+      "topic_ids": [
+        "async-tasks",
+        "model-concurrency",
+        "fallback-review"
+      ],
+      "source_baseline": "虚构演示 v1",
+      "evidence": []
+    }
+  ],
+  "sources": [
+    {
+      "id": "demo-note",
+      "name": "虚构问答整理",
+      "kind": "note",
+      "date": "",
+      "company": "",
+      "job": "",
+      "round": "",
+      "notes": "仅用于演示和自动化验证。",
+      "source_path": "examples/demo-import.json",
+      "original_markdown": "# 虚构问答整理\n\n此示例不对应真实面试或项目，两个问题用于说明卡片、来源与追问关系。"
+    }
+  ],
+  "occurrences": [
+    {
+      "id": "demo-occurrence-performance",
+      "card_id": "demo-performance",
+      "source_id": "demo-note",
+      "asked_question": "请求增多后如何分析延迟和排队？",
+      "original_answer_md": "演示原始回答：区分等待与执行，结合指标确认瓶颈。",
+      "section": "问题一",
+      "notes": "虚构资料"
+    },
+    {
+      "id": "demo-occurrence-fallback",
+      "card_id": "demo-fallback",
+      "source_id": "demo-note",
+      "asked_question": "依赖失败时应该如何降级？",
+      "original_answer_md": "演示原始回答：明确可靠输出的边界，并准确传递状态。",
+      "section": "问题一的追问",
+      "notes": "虚构资料"
+    }
+  ],
+  "relations": [
+    {
+      "id": "demo-followup",
+      "from_card_id": "demo-performance",
+      "to_card_id": "demo-fallback",
+      "kind": "followup"
+    }
+  ],
+  "revisions": []
+}

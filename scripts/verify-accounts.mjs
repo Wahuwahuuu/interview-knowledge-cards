@@ -1,0 +1,77 @@
+import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { demoLegacySql } from './demo-legacy.mjs';
+const config = 'wrangler.accounts-test.jsonc', origin = 'http://127.0.0.1:8789', stamp = crypto.randomUUID(), reports = [];
+const persist = '.wrangler/accounts-tests/' + stamp;
+const env = { ...process.env, WRANGLER_SEND_METRICS:'false', CLOUDFLARE_CF_FETCH_ENABLED:'false' };
+function run(args, chosenConfig = config) { const result = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', ...args, '--config', chosenConfig, '--persist-to', persist], { encoding:'utf8', windowsHide:true, env }); if (result.status !== 0) throw new Error('测试数据库初始化失败：' + result.stderr); return result.stdout; }
+// Generate a fictional legacy library; no private backup is required.
+const legacyMigrations = resolve(persist,'legacy-migrations'), legacyConfig = resolve(persist,'legacy-config.json'), fixture = resolve(persist,'legacy-data.sql');
+await mkdir(legacyMigrations,{recursive:true});
+await writeFile(resolve(legacyMigrations,'0001_initial.sql'),await readFile('migrations/0001_initial.sql','utf8'));
+const initialConfig = JSON.parse(await readFile(config,'utf8'));
+await writeFile(legacyConfig,JSON.stringify({name:initialConfig.name,compatibility_date:initialConfig.compatibility_date,d1_databases:initialConfig.d1_databases.map(database=>({...database,migrations_dir:legacyMigrations}))}));
+run(['d1','migrations','apply','DB','--local'],legacyConfig);
+await writeFile(fixture,await demoLegacySql());
+run(['d1','execute','DB','--local','--file',fixture]);
+const legacy = JSON.parse(run(['d1','execute','DB','--local','--command','SELECT payload FROM cards ORDER BY id; SELECT payload FROM card_revisions ORDER BY card_id,revision; SELECT payload FROM sources ORDER BY id; SELECT payload FROM import_batches ORDER BY id;','--json']));
+run(['d1','migrations','apply','DB','--local']);
+const server = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js','dev','--config',config,'--persist-to',persist,'--local','--port','8789','--ip','127.0.0.1'], { env, windowsHide:true, stdio:['pipe','pipe','pipe'] });
+let logs = ''; for (const output of [server.stdout,server.stderr]) output.on('data', value => { logs = (logs + value).slice(-4000); });
+async function req(path, { method='GET', value, cookie, localAdmin=false, agent=false, headers={} } = {}) {
+  const response = await fetch(origin + path, { method, headers: { Origin:origin,'Content-Type':'application/json', ...(localAdmin || agent ? {} : {'x-require-auth':'1'}), ...(agent ? {'x-local-role':'agent'} : {}), ...(cookie ? { Cookie:cookie } : {}), ...headers }, ...(value ? { body:JSON.stringify(value) } : {}), redirect:'manual' });
+  return { status:response.status, value: response.headers.get('content-type')?.includes('json') ? await response.json() : await response.text(), cookie:response.headers.get('set-cookie')?.split(';')[0] };
+}
+async function ok(path, options) { const result = await req(path, options); assert.equal(result.status,200, path + ': ' + result.value.error?.message); return result; }
+const report = name => { reports.push(name); console.log('通过：' + name); };
+try {
+  for (let i=0;i<100;i++) { try { if ((await fetch(origin+'/api/health')).ok) break; } catch {} if(i===99)throw new Error('测试服务未就绪：'+logs); await new Promise(resolve=>setTimeout(resolve,150)); }
+  const initial = (await ok('/api/v1/library',{localAdmin:true})).value;
+  assert.deepEqual(initial.cards,legacy[0].results.map(row=>JSON.parse(row.payload))); assert.deepEqual(initial.revisions,legacy[1].results.map(row=>JSON.parse(row.payload))); assert.deepEqual(initial.sources,legacy[2].results.map(row=>JSON.parse(row.payload)));
+  assert.equal(initial.cards.length,2); report('迁移原样保留管理员两张卡、原文和历史');
+  assert.equal((await req('/api/v1/library')).status,401); assert.equal((await req('/api/v1/export')).status,401); assert.equal((await req('/api/v1/library',{headers:{'x-user-id':'admin','x-role':'admin'}})).status,401); report('未登录与伪造身份无法读取私有资料');
+  assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'admin@example.com',display_name:'冒名',password:'test-password-2026'}})).status,409);
+  assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'bad@example.com',display_name:'测试',password:'short'}})).status,422);
+  assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'bad@example.com',display_name:'测试',password:'test-password-2026',role:'admin'}})).status,422); report('保留管理员账号，拒绝弱密码与注册角色提升');
+  const aEmail='a-'+stamp+'@example.com', bEmail='b-'+stamp+'@example.com', pw='test-password-2026-'+stamp;
+  const a = await ok('/api/v1/auth/register',{method:'POST',value:{email:aEmail,display_name:'隔离测试甲',password:pw}}), b = await ok('/api/v1/auth/register',{method:'POST',value:{email:bEmail,display_name:'隔离测试乙',password:pw}});
+  assert.equal(a.value.role,'member'); assert.ok(a.cookie); assert.equal((await ok('/api/v1/library',{cookie:a.cookie})).value.cards.length,0); assert.equal((await ok('/api/v1/imports',{cookie:a.cookie})).value.length,0);
+  assert.equal((await req('/api/v1/admin/users',{cookie:a.cookie})).status,403); report('新用户题库和草稿为空，不能管理用户');
+  const seed=JSON.parse(await readFile('examples/demo-import.json','utf8'));
+  const previewA = (await ok('/api/v1/imports/preview',{method:'POST',cookie:a.cookie,value:seed})).value;
+  const previewB = (await ok('/api/v1/imports/preview',{method:'POST',cookie:b.cookie,value:{...seed,cards:seed.cards.map(card=>({...card,answer_md:'乙自己的答案'}))}})).value;
+  assert.equal(previewA.id,previewB.id); assert.equal((await ok('/api/v1/library',{cookie:b.cookie})).value.cards.length,0);
+  const stateA = (await ok('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',cookie:a.cookie,value:{expected_revision:0}})).value.library;
+  assert.equal((await ok('/api/v1/library',{cookie:b.cookie})).value.cards.length,0);
+  const stateB = (await ok('/api/v1/imports/'+previewB.id+'/apply',{method:'POST',cookie:b.cookie,value:{expected_revision:0}})).value.library;
+  assert.notEqual(stateA.cards[0].answer_md,stateB.cards[0].answer_md); assert.equal((await ok('/api/v1/library',{localAdmin:true})).value.revision,initial.revision); report('同一批次和同一卡片 ID 在不同账户中独立保存');
+  const aCard=stateA.cards[0], bCard=stateB.cards.find(c=>c.id===aCard.id);
+  const editA=(await ok('/api/v1/cards/'+aCard.id,{method:'PUT',cookie:a.cookie,value:{expected_revision:stateA.revision,value:{...aCard,answer_md:'甲修改的新答案'}}})).value;
+  assert.equal((await ok('/api/v1/export',{cookie:b.cookie})).value.cards.find(c=>c.id===aCard.id).answer_md,bCard.answer_md);
+  const bHistory=(await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:b.cookie})).value; assert.equal(bHistory.length,1); assert.equal(bHistory[0].snapshot.answer_md,bCard.answer_md);
+  const bSnap=(await ok('/api/v1/projects/'+bCard.project_id+'/snapshot',{cookie:b.cookie})).value; assert.equal(bSnap.owner,bEmail); assert.equal(bSnap.snapshot.cards.find(c=>c.id===bCard.id).answer_md,bCard.answer_md);
+  assert.equal((await req('/api/v1/changes',{method:'POST',cookie:b.cookie,value:{expected_revision:stateB.revision,changes:{schema_version:1,cards:[{...bCard,id:'foreign-ref',project_id:'only-a-project'}]}}})).status,422); report('编辑、历史、导出、离线快照和引用均限定所属账户');
+  const agent=(await ok('/api/v1/agent/library',{agent:true})).value; assert.deepEqual(agent.cards,initial.cards);
+  assert.equal((await req('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',agent:true,value:{expected_revision:1}})).status,403); report('机器凭证绑定原管理员题库，并仍禁止正式应用');
+  assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:aEmail,password:'wrong-password'}})).status,401);
+  assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:'unknown@example.com',password:'wrong-password'}})).status,401);
+  const loginA=await ok('/api/v1/auth/login',{method:'POST',value:{email:aEmail.toUpperCase(),password:pw}}); assert.equal(loginA.value.user_id,a.value.user_id);
+  const changed=await ok('/api/v1/account/password',{method:'POST',cookie:loginA.cookie,value:{current_password:pw,password:pw+'-changed'}});
+  assert.equal((await req('/api/v1/library',{cookie:a.cookie})).status,401); assert.equal((await req('/api/v1/library',{cookie:loginA.cookie})).status,401); assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:aEmail,password:pw}})).status,401);
+  assert.equal((await ok('/api/v1/library',{cookie:changed.cookie})).value.revision,editA.revision); report('正确密码登录；改密撤销所有旧会话且保留当前题库');
+  await ok('/api/v1/auth/logout',{method:'POST',cookie:changed.cookie,value:{}}); assert.equal((await req('/api/v1/library',{cookie:changed.cookie})).status,401); report('退出后旧会话确实失效');
+  const users=(await ok('/api/v1/admin/users',{localAdmin:true})).value, userB=users.find(u=>u.id===b.value.user_id); assert.ok(!('password_hash' in userB));
+  await ok('/api/v1/admin/users/'+userB.id,{method:'PUT',localAdmin:true,value:{status:'disabled',expected_updated_at:userB.updated_at}});
+  assert.equal((await req('/api/v1/library',{cookie:b.cookie})).status,401); assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:bEmail,password:pw}})).status,403);
+  assert.equal((await req('/api/v1/admin/users/admin',{method:'PUT',localAdmin:true,value:{status:'disabled',expected_updated_at:users[0].updated_at}})).status,422); report('管理员可停用普通账户；停用即撤销会话，不能停用自己');
+  await ok('/api/v1/admin/registration',{method:'PUT',localAdmin:true,value:{registration_open:false}});
+  assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'closed-'+stamp+'@example.com',display_name:'测试',password:pw}})).status,403); report('注册开关由管理员控制');
+  let rate; for(let i=0;i<13;i++) rate=await req('/api/v1/auth/login',{method:'POST',value:{email:'rate-'+stamp+'@example.com',password:'invalid-password'}}); assert.equal(rate.status,429); report('重复密码尝试受到速率限制');
+  const claim=await ok('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw,display_name:'管理员'}});
+  const adminLogin=await ok('/api/v1/auth/login',{method:'POST',value:{email:'admin@example.com',password:pw}}); assert.equal(adminLogin.value.role,'admin'); assert.equal((await ok('/api/v1/library',{cookie:adminLogin.cookie})).value.cards.length,2);
+  assert.equal((await req('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw}})).status,409); report('管理员一次性设置密码后可以用账号登录，保留原题库');
+  await mkdir('test-results',{recursive:true}); await writeFile('test-results/accounts-verification.json',JSON.stringify({passed:true,at:new Date().toISOString(),local_database:config,reports},null,2));
+  console.log('账户隔离验证完成：'+reports.length+' 项全部通过。');
+} finally { if(server.pid) { if(process.platform==='win32') spawnSync('taskkill.exe',['/PID',String(server.pid),'/T','/F'],{stdio:'ignore',windowsHide:true}); else server.kill('SIGTERM'); } }

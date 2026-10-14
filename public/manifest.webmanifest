@@ -1,0 +1,10 @@
+{
+  "id": "/", "name": "面试知识卡", "short_name": "知识卡", "lang": "zh-CN",
+  "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#f5f6f0", "theme_color": "#edf1e9",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

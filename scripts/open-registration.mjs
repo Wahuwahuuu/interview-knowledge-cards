@@ -1,0 +1,34 @@
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { useSystemProxy } from './system-proxy.mjs';
+const config=JSON.parse(readFileSync('wrangler.jsonc','utf8')), state=JSON.parse(readFileSync('.cloudflare-access.json','utf8'));
+const token=process.env.CLOUDFLARE_ACCESS_SETUP_TOKEN;
+if(!token)throw new Error('请运行“开放账号注册.cmd”，在本机窗口填写临时 Access: Apps and Policies 编辑 Token。');
+if(config.vars.APP_ENV!=='production'||config.account_id!==state.account_id||config.vars.ACCESS_AUD!==state.owner_aud)throw new Error('部署账户与登录配置不一致，停止修改。');
+const site=new URL(state.site_url), hostname=site.hostname, bootstrap=hostname+'/bootstrap-admin/*';
+useSystemProxy(site);
+const env={...process.env,WRANGLER_SEND_METRICS:'false',CLOUDFLARE_CF_FETCH_ENABLED:'false'};
+const ready=spawnSync(process.execPath,['node_modules/wrangler/bin/wrangler.js','d1','execute','DB','--remote','--json','--command',"SELECT (password_hash IS NOT NULL AND email IS NOT NULL) AS ready FROM users WHERE id='admin'"],{encoding:'utf8',windowsHide:true,env});
+if(ready.status!==0)throw new Error('无法确认管理员密码设置，请先完成部署工具授权。');
+if(JSON.parse(ready.stdout)[0]?.results[0]?.ready!==1)throw new Error('先打开网站设置管理员密码，再运行本脚本。尚未开放注册网址。');
+async function cloud(path,method='GET',value) {
+  const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${config.account_id}/access${path}`,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},...(value?{body:JSON.stringify(value)}:{}),signal:AbortSignal.timeout(30000)});
+  const data=await response.json(); if(!response.ok||!data.success)throw new Error('Access 设置失败（'+response.status+'）：'+(data.errors?.map(e=>e.message).join('；')||'请求失败')); return data.result;
+}
+const current=await cloud('/apps/'+state.owner_app_id), policies=await cloud('/apps/'+state.owner_app_id+'/policies'), agent=await cloud('/apps/'+state.agent_app_id);
+if(current.type!=='self_hosted'||![hostname,bootstrap].includes(current.domain)||current.aud!==state.owner_aud)throw new Error('现有人工登录应用范围与记录不同，停止修改。');
+if(current.destinations?.some(destination=>destination.type!=='public'||![hostname,bootstrap].includes(destination.uri))||current.self_hosted_domains?.some(domain=>![hostname,bootstrap].includes(domain)))throw new Error('该应用还保护其他网址，停止以免改变其他应用的入口。');
+if(policies.length!==1||policies[0].decision!=='allow'||policies[0].include?.length!==1||policies[0].include[0]?.email?.email?.toLowerCase()!==config.vars.OWNER_EMAIL.toLowerCase())throw new Error('现有管理员邮箱策略与预期不同，停止修改。');
+if(agent.domain!==hostname+'/api/v1/agent/*'||agent.aud!==state.agent_aud)throw new Error('AI 入口与记录不同，停止修改。');
+const backupPath='.private/access-before-registration.json';
+if(!existsSync(backupPath))writeFileSync(backupPath,JSON.stringify({app:current,policies},null,2));
+const desired={name:current.name,type:'self_hosted',domain:bootstrap,destinations:[{type:'public',uri:bootstrap}],self_hosted_domains:[bootstrap],session_duration:current.session_duration??'720h',allowed_idps:current.allowed_idps,auto_redirect_to_identity:current.auto_redirect_to_identity};
+await cloud('/apps/'+state.owner_app_id,'PUT',desired);
+const applied=await cloud('/apps/'+state.owner_app_id);
+if(applied.domain!==bootstrap||applied.aud!==state.owner_aud)throw new Error('返回的管理员保护范围或 AUD 与预期不同，请按文档恢复原保护范围。');
+const appliedPolicies=await cloud('/apps/'+state.owner_app_id+'/policies');
+if(appliedPolicies.length!==1||appliedPolicies[0].decision!=='allow'||JSON.stringify(appliedPolicies[0].include)!==JSON.stringify(policies[0].include))throw new Error('邮箱策略核对未通过，请按文档恢复原保护范围。');
+state.auth_mode='password'; state.owner_domain=bootstrap; state.registration_opened_at=new Date().toISOString();
+writeFileSync('.cloudflare-access.json',JSON.stringify(state,null,2)+'\n');
+console.log('账号密码登录网址已开放。管理员设置入口和 AI 接口继续由 Cloudflare 单独保护。');
+console.log('Online: '+site.origin);

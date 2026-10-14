@@ -1,0 +1,6 @@
+{
+  "name":"interview-cards-accounts-tests","main":"worker/index.ts","compatibility_date":"2026-10-14","compatibility_flags":["nodejs_compat"],
+  "assets":{"directory":"./dist","binding":"ASSETS","run_worker_first":true,"not_found_handling":"single-page-application"},
+  "vars":{"APP_ENV":"local","OWNER_EMAIL":"admin@example.com"},
+  "d1_databases":[{"binding":"DB","database_name":"interview-cards-accounts-tests","database_id":"00000000-0000-0000-0000-000000000002","migrations_dir":"migrations"}]
+}
