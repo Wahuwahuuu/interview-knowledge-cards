@@ -68,7 +68,15 @@ try {
   assert.equal((await req('/api/v1/admin/users/admin',{method:'PUT',localAdmin:true,value:{status:'disabled',expected_updated_at:users[0].updated_at}})).status,422); report('管理员可停用普通账户；停用即撤销会话，不能停用自己');
   await ok('/api/v1/admin/registration',{method:'PUT',localAdmin:true,value:{registration_open:false}});
   assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'closed-'+stamp+'@example.com',display_name:'测试',password:pw}})).status,403); report('注册开关由管理员控制');
-  let rate; for(let i=0;i<13;i++) rate=await req('/api/v1/auth/login',{method:'POST',value:{email:'rate-'+stamp+'@example.com',password:'invalid-password'}}); assert.equal(rate.status,429); report('重复密码尝试受到速率限制');
+  // A fixed 15-minute window may reset during this short test. Two windows plus
+  // one request guarantees a limit response without relying on wall-clock phase.
+  let rate;
+  for(let i=0;i<25;i++) {
+    rate=await req('/api/v1/auth/login',{method:'POST',value:{email:'rate-'+stamp+'@example.com',password:'invalid-password'}});
+    if(rate.status===429)break;
+    assert.equal(rate.status,401);
+  }
+  assert.equal(rate.status,429); report('重复密码尝试受到速率限制');
   const claim=await ok('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw,display_name:'管理员'}});
   const adminLogin=await ok('/api/v1/auth/login',{method:'POST',value:{email:'admin@example.com',password:pw}}); assert.equal(adminLogin.value.role,'admin'); assert.equal((await ok('/api/v1/library',{cookie:adminLogin.cookie})).value.cards.length,2);
   assert.equal((await req('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw}})).status,409); report('管理员一次性设置密码后可以用账号登录，保留原题库');
