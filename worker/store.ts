@@ -1,4 +1,33 @@
-import { AppError, canonical, kinds, librarySchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
+import { AppError, canonical, cardSchema, kinds, librarySchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
+import { cardState, type CardStateRequest, type CardStateResult } from '../shared/card-state';
+
+export async function updateCardState(db: D1Database, userId: string, id: string, input: CardStateRequest): Promise<CardStateResult> {
+  const [meta, records] = await db.batch([
+    db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId),
+    db.prepare('SELECT payload FROM user_cards WHERE user_id=? AND id=?').bind(userId, id),
+  ]);
+  const revision = (meta.results[0] as { revision: number } | undefined)?.revision ?? 0;
+  const row = records.results[0] as { payload: string } | undefined;
+  if (!row) throw new AppError(404, '知识卡不存在');
+  const old = cardSchema.parse(JSON.parse(row.payload));
+  if (input.expected_revision !== revision || input.card_revision !== old.revision) throw new AppError(409, '题库已更新，请重试保存标记', 'REVISION_CONFLICT');
+  if (Object.entries(input.patch).every(([key, value]) => old[key as keyof typeof input.patch] === value)) return { revision, card: cardState(old) };
+  // Review flags keep the answer version and its history; only the library revision advances.
+  const next = { ...old, ...input.patch, updated_at: new Date().toISOString() };
+  const guard = crypto.randomUUID();
+  try {
+    await db.batch([
+      db.prepare('INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT revision FROM user_library_meta WHERE user_id=?)=? AND (SELECT revision FROM user_cards WHERE user_id=? AND id=?)=? THEN 1 ELSE 0 END)').bind(userId, guard, userId, revision, userId, id, old.revision),
+      db.prepare('UPDATE user_cards SET revision=?,payload=? WHERE user_id=? AND id=?').bind(next.revision, JSON.stringify(next), userId, id),
+      db.prepare('UPDATE user_library_meta SET revision=revision+1 WHERE user_id=?').bind(userId),
+      db.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(userId, guard),
+    ]);
+  } catch (error) {
+    if (String(error).includes('ok=1') || String(error).includes('mutation_guard')) throw new AppError(409, '题库刚有更新，请重试保存标记', 'REVISION_CONFLICT');
+    throw error;
+  }
+  return { revision: revision + 1, card: cardState(next) };
+}
 
 export async function readLibrary(db: D1Database, userId: string): Promise<Library> {
   const queries = [db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId), ...kinds.map(kind => db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? ORDER BY id`).bind(userId)), db.prepare('SELECT payload FROM user_card_revisions WHERE user_id=? ORDER BY card_id,revision').bind(userId)];

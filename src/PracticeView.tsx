@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, Folder, LayoutGrid, ListOrdered, Shuffle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
 import { canAdvancePractice, currentPracticeId, nextPractice, practiceCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
 import { InlineMarkdown, Markdown } from './Markdown';
@@ -9,6 +9,7 @@ type Props = {
   initialProjectId?: string;
   offline: boolean;
   busy: boolean;
+  saveStatus?: Record<string, 'saving' | 'error'>;
   onMark: (card: Card, mastery: Card['mastery']) => Promise<void>;
   onScopeChange: (projectId: string | undefined) => void;
   onOpenProject: (projectId: string) => void;
@@ -21,7 +22,7 @@ function ModeToggle({ mode, onChange }: { mode: PracticeMode; onChange: (mode: P
   </div>;
 }
 
-export function PracticeView({ library, initialProjectId, offline, busy, onMark, onScopeChange, onOpenProject }: Props) {
+export function PracticeView({ library, initialProjectId, offline, busy, saveStatus, onMark, onScopeChange, onOpenProject }: Props) {
   const [scope, setScope] = useState<'all' | 'project'>(initialProjectId ? 'project' : 'all');
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? library.projects[0]?.id ?? '');
   const [mode, setMode] = useState<PracticeMode>('sequential');
@@ -76,13 +77,13 @@ export function PracticeView({ library, initialProjectId, offline, busy, onMark,
     {card ? <>
       <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(card.id) + 1} / ${session.ids.length} 题` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 题`}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
       <article className={'practice-card ' + (revealed ? 'revealed' : '')}>
-        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}</span> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
+        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
         <h2><InlineMarkdown text={card.question} /></h2>
         {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
       </article>
       <div className="practice-actions">
         <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); setRevealed(false); setFullAnswerOpen(false); }}><ArrowLeft size={16} />上一题</button>
-        <div className="button-row"><button className="secondary" disabled={offline || busy} onClick={() => void onMark(card, 'review')}>再复习一下</button><button className="primary" disabled={offline || busy} onClick={() => void onMark(card, 'mastered')}><Check size={16} />已掌握</button></div>
+        <div className="button-row"><button className="secondary" aria-pressed={card.mastery === 'review'} disabled={offline || busy} onClick={() => void onMark(card, 'review')}>再复习一下</button><button className="primary" aria-pressed={card.mastery === 'mastered'} disabled={offline || busy} onClick={() => void onMark(card, 'mastered')}><Check size={16} />已掌握</button></div>
         <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value) : null); setRevealed(false); setFullAnswerOpen(false); }}>下一题<ArrowRight size={16} /></button>
       </div>
       {offline && <p className="microcopy centered">离线可阅读和翻卡；掌握状态需要联网保存。</p>}

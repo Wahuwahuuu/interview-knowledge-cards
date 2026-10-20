@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { AppError, canonical, diffLibraries, graphElements, importSchema, kinds, markdownExport, prepareImport, projectSnapshot, schemas, type Entity, type ImportBatch, type ImportEnvelope, type Kind, type Library } from '../shared/model';
 import { assertOrigin, assertOwner, authenticate, resolveIdentity, type Env, type Identity } from './auth';
-import { commitLibrary, readLibrary } from './store';
+import { commitLibrary, readLibrary, updateCardState } from './store';
+import { cardStateRequestSchema } from '../shared/card-state';
 import accountRoutes from './accounts';
 import { removeCard } from '../shared/card-actions';
 import { removeProject } from '../shared/project-actions';
@@ -77,6 +78,10 @@ app.post('/api/v1/changes', async c => {
   return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
 });
 app.get('/api/v1/library', async c => c.json(await readLibrary(c.env.DB, c.get('identity').user_id)));
+app.patch('/api/v1/cards/:id/state', async c => {
+  const input = cardStateRequestSchema.parse(await body(c.req.raw));
+  return c.json(await updateCardState(c.env.DB, c.get('identity').user_id, c.req.param('id'), input));
+});
 app.get('/api/v1/graph', async c => c.json({ elements: graphElements(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.query('project_id') || undefined) }));
 app.get('/api/v1/projects/:id/snapshot', async c => c.json({ downloaded_at: new Date().toISOString(), owner: c.get('identity').email, snapshot: projectSnapshot(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.param('id')) }));
 app.get('/api/v1/cards/:id/history', async c => c.json((await readLibrary(c.env.DB, c.get('identity').user_id)).revisions.filter(v => v.card_id === c.req.param('id')).sort((a, b) => b.revision - a.revision)));

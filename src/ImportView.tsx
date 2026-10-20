@@ -18,11 +18,12 @@ function batchLabel(batch: ImportBatch) {
   if (cards.length) return cards.slice(0, 2).map(card => card.name).join('、') + (cards.length > 2 ? ` 等 ${cards.length} 个问题` : '');
   return '问答与来源导入';
 }
-type Props = { library: Library; view: ImportPage; offline: boolean; onLibrary: (library: Library) => void; onError: (error: unknown) => void; notify: (text: string) => void };
+type Props = { library: Library; view: ImportPage; offline: boolean; pendingStateSave?: boolean; onLibrary: (library: Library) => void; onError: (error: unknown) => void; notify: (text: string) => void };
 
-export function ImportView({ library, view, offline, onLibrary, onError, notify }: Props) {
+export function ImportView({ library, view, offline, pendingStateSave = false, onLibrary, onError, notify }: Props) {
   const [batches, setBatches] = useState<ImportBatch[]>([]), [selected, setSelected] = useState<ImportBatch | null>(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [fileName, setFileName] = useState('');
+  const [running, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [fileName, setFileName] = useState('');
+  const busy = running || pendingStateSave;
   const [manualBatchId, setManualBatchId] = useState(''), [manualResetKey, setManualResetKey] = useState(0);
   const [confirmationBatch, setConfirmationBatch] = useState<ImportBatch | null>(null);
   const manualEditVersion = useRef(0), manualPreviewVersion = useRef<number | null>(null);

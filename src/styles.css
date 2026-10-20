@@ -108,6 +108,11 @@
 .practice-setup-controls>.button-row{justify-content:space-between;gap:14px;border-top:1px solid var(--border);padding-top:22px}
 .practice-setup-controls>.button-row>.muted{margin:0}
 .practice-mode-toggle{display:inline-flex;align-self:flex-start;width:max-content;max-width:100%}
+.practice-card-label>span:first-child{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;margin-right:auto}
+.practice-save-status{display:inline-flex;align-items:center;gap:6px;letter-spacing:0;font-size:12px;color:var(--green)}
+.practice-save-status.save-failed{color:#9b3e32}
+.state-save-error{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 24px;color:#9b3e32;background:#fff4ee;border-bottom:1px solid #e1c6c0;font-size:13px;line-height:1.8}
+.state-save-error .secondary{flex-shrink:0;min-height:40px}
 .practice-mode-toggle button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
 .practice-session-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;max-width:760px;margin:0 auto 25px}
 .practice-scope-name{font-size:12px;color:var(--muted)}
