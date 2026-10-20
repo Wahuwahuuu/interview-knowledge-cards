@@ -4,6 +4,7 @@ import { AppError, canonical, diffLibraries, graphElements, importSchema, kinds,
 import { assertOrigin, assertOwner, authenticate, resolveIdentity, type Env, type Identity } from './auth';
 import { commitLibrary, readLibrary } from './store';
 import accountRoutes from './accounts';
+import { removeCard } from '../shared/card-actions';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -108,7 +109,8 @@ for (const kind of kinds) {
     const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
     expectedRevision(input, library);
     if (!library[kind].some(v => v.id === c.req.param('id'))) throw new AppError(404, '记录不存在');
-    if (kind === 'cards' || kind === 'sources' || kind === 'occurrences') throw new AppError(422, '卡片请归档，原始问答与来源记录保留供追溯');
+    if (kind === 'cards') return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, removeCard(library, c.req.param('id'))));
+    if (kind === 'sources' || kind === 'occurrences') throw new AppError(422, '原始问答与来源记录保留供追溯');
     const target = structuredClone(library);
     (target[kind] as Entity[]) = (target[kind] as Entity[]).filter(v => v.id !== c.req.param('id'));
     return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));

@@ -3,7 +3,7 @@ import { X, Plus, Save, Link2 } from 'lucide-react';
 import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { api, newId } from './api';
 
-export function Modal({ title, children, onClose, wide = false }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -22,7 +22,7 @@ export function Modal({ title, children, onClose, wide = false }: { title: React
     document.addEventListener('keydown', key);
     return () => { document.body.style.overflow = old; document.removeEventListener('keydown', key); previous?.focus(); };
   }, []);
-  return <div className="modal-backdrop"><div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modal-title" className={'modal ' + (wide ? 'modal-wide' : '')}><div className="modal-header"><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭弹窗" onClick={onClose}><X size={21} /></button></div><div className="modal-content">{children}</div></div></div>;
+  return <div className="modal-backdrop"><div ref={dialog} tabIndex={-1} role={role} aria-modal="true" aria-labelledby="modal-title" className={'modal ' + (wide ? 'modal-wide' : '')}><div className="modal-header"><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭弹窗" disabled={closeDisabled} onClick={onClose}><X size={21} /></button></div><div className="modal-content">{children}</div></div></div>;
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
 type FormProps = { library: Library; expectedRevision: number; onSaved: (library: Library) => void; onDirty: (dirty: boolean) => void; onError: (error: unknown) => void };
@@ -54,7 +54,7 @@ export function CardForm(props: FormProps & { initial: Card }) {
     <Field label="知识点"><div className="topic-options">{props.library.topics.map(t => <label key={t.id} className={'topic-check ' + (value.topic_ids.includes(t.id) ? 'checked' : '')}><input type="checkbox" checked={value.topic_ids.includes(t.id)} onChange={e => set('topic_ids', e.target.checked ? [...value.topic_ids, t.id] : value.topic_ids.filter(id => id !== t.id))} />{t.name}</label>)}</div></Field>
     <Field label="新增知识点" hint="多个知识点用逗号分隔，保存时会同时添加。"><input value={newTopics} onChange={e => { setNewTopics(e.target.value); props.onDirty(true); }} placeholder="例如：幂等、故障隔离" /></Field>
     <div className="form-row"><Field label="复习状态"><select value={value.mastery} onChange={e => set('mastery', e.target.value as Card['mastery'])}><option value="review">待复习</option><option value="mastered">已掌握</option></select></Field><Field label="归档状态"><select value={String(value.archived)} onChange={e => set('archived', e.target.value === 'true')}><option value="false">正常显示</option><option value="true">归档保留</option></select></Field></div>
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span className="muted">原始问答保留在出现记录中，修改会生成历史版本。</span><button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存卡片'}</button></div>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span className="muted">保存后更新当前卡片。</span><button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存卡片'}</button></div>
   </form>;
 }
 

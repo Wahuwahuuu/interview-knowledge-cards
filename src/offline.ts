@@ -1,4 +1,5 @@
 import { emptyLibrary, kinds, librarySchema, type Library } from '../shared/model';
+import { removeCard } from '../shared/card-actions';
 
 export type Download = { id: string; owner: string; downloaded_at: string; snapshot: Library };
 const DB_NAME = 'interview-cards-private-v1';
@@ -25,6 +26,13 @@ export const removeDownload = (id: string) => transaction('downloads', 'readwrit
 export const readDownloads = () => transaction<Download[]>('downloads', 'readonly', store => store.getAll());
 export const saveOwner = (email: string) => transaction('meta', 'readwrite', store => store.put(email, 'owner'));
 export const readOwner = () => transaction<string | undefined>('meta', 'readonly', store => store.get('owner'));
+export async function removeCardFromDownloads(owner: string, cardId: string): Promise<Download[]> {
+  const downloads = await readDownloads();
+  for (const download of downloads) if (download.owner === owner && download.snapshot.cards.some(card => card.id === cardId)) {
+    await saveDownload({ ...download, snapshot: removeCard(librarySchema.parse(download.snapshot), cardId) });
+  }
+  return readDownloads();
+}
 export async function clearPrivateData() {
   const results = await Promise.allSettled([
     transaction('downloads', 'readwrite', store => store.clear()),

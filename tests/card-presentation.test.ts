@@ -7,12 +7,27 @@ import { legacyPriorityTitle } from '../shared/card-priority';
 import { InlineMarkdown } from '../src/Markdown';
 import { CardCollection } from '../src/CardCollection';
 import { CardForm } from '../src/Editors';
+import { CardDeleteConfirmation, CardFullAnswer } from '../src/CardContent';
 import { mergeDownloads, type Download } from '../src/offline';
 
 const question = { id: 'q1', project_id: 'mysql', title: '02. ⭐ 如何使用 `EXPLAIN`？', question: '如何使用 `EXPLAIN` 分析 **执行计划**？', summary_md: '口述内容', answer_md: '详细答案', limitations_md: '旧边界资料', source_baseline: '旧基线', evidence: [{ label: '旧依据', path: 'private-source.ts' }] };
 const fixture = () => prepareImport(emptyLibrary(), importSchema.parse({ schema_version: 1, projects: [{ id: 'mysql', name: 'MySQL' }], cards: [question] }));
 
 describe('题目展示与重点兼容', () => {
+  it('完整答案首次打开不挂载正文，避免在收起时解析答案', () => {
+    const html = renderToStaticMarkup(createElement(CardFullAnswer, { text: 'ANSWER_NOT_MOUNTED **详细内容**' }));
+    expect(html).toContain('<summary>完整答案</summary>');
+    expect(html).not.toContain(' open'); expect(html).not.toContain('ANSWER_NOT_MOUNTED'); expect(html).not.toContain('markdown');
+  });
+
+  it('删除确认显示具体题目，初始不执行删除，处理中禁止取消或再次提交', () => {
+    let deletes = 0;
+    const html = renderToStaticMarkup(createElement(CardDeleteConfirmation, { title: question.title, busy: true, error: '删除失败，请重试', onCancel() {}, onConfirm() { deletes++; } }));
+    expect(html).toContain('删除这张知识卡'); expect(html).toContain('<code>EXPLAIN</code>');
+    expect(html).toContain('正在删除'); expect(html).toContain('删除失败，请重试');
+    expect(html.match(/<button[^>]*disabled/g)).toHaveLength(2); expect(deletes).toBe(0);
+  });
+
   it('只移除题首和题号后装饰星号，SQL星号和Markdown强调不受影响', () => {
     for (const title of ['01. ⭐ 事务', '02 · ★★ 事务', '☆ 事务', '⭐️ 事务']) {
       expect(legacyPriorityTitle(title).marked).toBe(true);

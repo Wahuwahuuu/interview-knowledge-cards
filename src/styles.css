@@ -61,10 +61,14 @@
 .manual-import-destination>.field{margin:0}
 .manual-import-question{display:grid;grid-template-columns:1fr 1fr;gap:18px 22px;padding-top:22px;margin-bottom:26px;border-top:1px solid var(--border);min-width:0}
 .manual-import-question-heading{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:16px}
-.manual-import-question-heading>h4{font-size:15px}
+.manual-import-question-labels{display:flex;align-items:center;gap:18px;min-width:0}
+.manual-import-question-labels>h4{font-size:15px;white-space:nowrap}
+.manual-import-question-labels .manual-import-priority{margin:0;min-height:36px;cursor:pointer;white-space:nowrap}
+.manual-import-priority input{width:16px;height:16px;min-height:0;margin:0}
 .manual-import-question>.field{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
-.manual-import-question>.field:nth-of-type(-n+2){grid-column:1/-1}
-.manual-import-question>.field:nth-of-type(n+3)>textarea{min-height:180px;flex:1}
+.manual-import-question>.manual-import-title,.manual-import-question>.manual-import-prompt{grid-column:1/-1}
+.manual-import-prompt>textarea{min-height:96px}
+.manual-import-summary>textarea,.manual-import-answer>textarea{min-height:180px;flex:1}
 .manual-import-required{font-size:12px;color:#65725c;font-weight:400}
 .manual-import-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
 .manual-import-footer>.microcopy,.manual-import-form>.microcopy{color:#5e6f55}
@@ -85,7 +89,7 @@
   .json-import-tools>.button-row>button{flex:1;min-width:0}
   .manual-import-form{padding:20px 18px}
   .manual-import-destination,.manual-import-question{grid-template-columns:1fr;gap:16px}
-  .manual-import-question>.field:nth-of-type(n+3)>textarea{min-height:140px}
+  .manual-import-summary>textarea,.manual-import-answer>textarea{min-height:140px}
   .manual-import-footer{flex-wrap:wrap}
   .manual-import-footer>.primary{width:100%}
 }
@@ -163,6 +167,15 @@ main.graph-main{width:100%;max-width:none;height:calc(100dvh - 74px);min-height:
 .priority-checkbox{display:flex;align-items:center;gap:9px;font-size:13px;color:#526749;margin:0 0 20px}
 .priority-checkbox input{width:auto;accent-color:var(--green)}
 .detail-actions .priority-active{background:#f4edd7;border-color:#e4d7b0;color:#85631e}
+.detail-actions .card-delete-button{color:#9b3e32;border-color:#e1c6c0}
+.detail-actions .card-delete-button:hover{background:#f9eeeb;border-color:#ca9c92}
+.card-delete-confirm{color:var(--ink)}
+.card-delete-confirm>h3{font-size:15px;margin-bottom:9px}
+.card-delete-name{font-size:14px;font-weight:500;line-height:1.8;margin-bottom:8px;overflow-wrap:anywhere}
+.card-delete-confirm>p:not(.card-delete-name):not(.form-error){font-size:12px;line-height:1.8;color:#73584f;margin-bottom:14px}
+.card-delete-confirm .button-row{justify-content:flex-end;flex-wrap:wrap}
+.card-delete-confirm .primary{background:#9b3e32;border-color:#9b3e32}
+.card-delete-confirm .primary:hover{background:#7e3026}
 @media(max-width:760px){
   .filters{flex-wrap:wrap}
   .filters>.search-box{flex-basis:100%}

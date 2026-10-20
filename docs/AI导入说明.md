@@ -66,6 +66,8 @@ node scripts/agent-import.mjs examples/your-import.json
 
 网页默认只需要核对题目的标题、问题、复习提纲、完整答案和重点标记；内容会按 Markdown 排版，更新内容提供前后对照。知识点、原始来源、出现记录、问题关联以及 ID、版本等系统字段统一收进默认折叠的「其他导入资料」。折叠只改变展示，整批校验、人工确认、版本冲突与完整导入范围保持一致。完整恢复涉及的移除会另外提示；只有附属资料变化时也会明确说明，不会显示为“没有变化”。
 
-完整导出：`GET /api/v1/export`；阅读版：`?format=markdown`。项目快照：`GET /api/v1/projects/{id}/snapshot`。历史：`GET /api/v1/cards/{id}/history`。恢复卡片：`POST /api/v1/cards/{id}/restore`，包含 `expected_revision` 和 `card_revision`。
+完整导出：`GET /api/v1/export`；阅读版：`?format=markdown`。项目快照：`GET /api/v1/projects/{id}/snapshot`。网站卡片已移除版本管理入口，旧历史快照和既有历史接口继续用于兼容原备份；内部 `revision` 校验仍用于避免覆盖并发修改。
+
+删除卡片：`DELETE /api/v1/cards/{id}`，JSON 包含 `expected_revision`。只作用于当前登录账号，同时移除该卡片的出现关联、问题关系及历史记录，保留来源原文和其他卡片。网页提供独立的二次确认弹窗；机器身份仍无删除权限。删除后的完整备份和项目快照不再含该题，删除前的完整备份可恢复原有资料。
 
 422 表示数据或引用错误，409 表示版本冲突或批次 ID 被复用，401/403 表示未登录或无对应权限。错误响应包含 `error.code`、`error.message`，字段错误还会列出 `details`。

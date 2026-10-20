@@ -29,8 +29,8 @@ const report = name => { reports.push(name); console.log('通过：' + name); };
 try {
   for (let i=0;i<100;i++) { try { if ((await fetch(origin+'/api/health')).ok) break; } catch {} if(i===99)throw new Error('测试服务未就绪：'+logs); await new Promise(resolve=>setTimeout(resolve,150)); }
   const initial = (await ok('/api/v1/library',{localAdmin:true})).value;
-  assert.deepEqual(initial.cards,legacy[0].results.map(row=>JSON.parse(row.payload))); assert.deepEqual(initial.revisions,legacy[1].results.map(row=>JSON.parse(row.payload))); assert.deepEqual(initial.sources,legacy[2].results.map(row=>JSON.parse(row.payload)));
-  assert.equal(initial.cards.length,2); report('迁移原样保留管理员两张卡、原文和历史');
+  assert.deepEqual(initial.cards,legacy[0].results.map(row=>({important:false,...JSON.parse(row.payload)}))); assert.deepEqual(initial.revisions,legacy[1].results.map(row=>{const entry=JSON.parse(row.payload);return {...entry,snapshot:{important:false,...entry.snapshot}};})); assert.deepEqual(initial.sources,legacy[2].results.map(row=>JSON.parse(row.payload)));
+  assert.equal(initial.cards.length,2); report('迁移保留管理员卡片、原文和历史，并兼容补齐重点属性');
   assert.equal((await req('/api/v1/library')).status,401); assert.equal((await req('/api/v1/export')).status,401); assert.equal((await req('/api/v1/library',{headers:{'x-user-id':'admin','x-role':'admin'}})).status,401); report('未登录与伪造身份无法读取私有资料');
   assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'admin@example.com',display_name:'冒名',password:'test-password-2026'}})).status,409);
   assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'bad@example.com',display_name:'测试',password:'short'}})).status,422);
@@ -48,11 +48,16 @@ try {
   const stateB = (await ok('/api/v1/imports/'+previewB.id+'/apply',{method:'POST',cookie:b.cookie,value:{expected_revision:0}})).value.library;
   assert.notEqual(stateA.cards[0].answer_md,stateB.cards[0].answer_md); assert.equal((await ok('/api/v1/library',{localAdmin:true})).value.revision,initial.revision); report('同一批次和同一卡片 ID 在不同账户中独立保存');
   const aCard=stateA.cards[0], bCard=stateB.cards.find(c=>c.id===aCard.id);
-  const editA=(await ok('/api/v1/cards/'+aCard.id,{method:'PUT',cookie:a.cookie,value:{expected_revision:stateA.revision,value:{...aCard,answer_md:'甲修改的新答案'}}})).value;
+  let editA=(await ok('/api/v1/cards/'+aCard.id,{method:'PUT',cookie:a.cookie,value:{expected_revision:stateA.revision,value:{...aCard,answer_md:'甲修改的新答案'}}})).value;
   assert.equal((await ok('/api/v1/export',{cookie:b.cookie})).value.cards.find(c=>c.id===aCard.id).answer_md,bCard.answer_md);
   const bHistory=(await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:b.cookie})).value; assert.equal(bHistory.length,1); assert.equal(bHistory[0].snapshot.answer_md,bCard.answer_md);
   const bSnap=(await ok('/api/v1/projects/'+bCard.project_id+'/snapshot',{cookie:b.cookie})).value; assert.equal(bSnap.owner,bEmail); assert.equal(bSnap.snapshot.cards.find(c=>c.id===bCard.id).answer_md,bCard.answer_md);
   assert.equal((await req('/api/v1/changes',{method:'POST',cookie:b.cookie,value:{expected_revision:stateB.revision,changes:{schema_version:1,cards:[{...bCard,id:'foreign-ref',project_id:'only-a-project'}]}}})).status,422); report('编辑、历史、导出、离线快照和引用均限定所属账户');
+  const beforeDeleteB=(await ok('/api/v1/library',{cookie:b.cookie})).value;
+  editA=(await ok('/api/v1/cards/'+aCard.id,{method:'DELETE',cookie:a.cookie,value:{expected_revision:editA.revision,user_id:b.value.user_id}})).value;
+  assert.ok(!editA.cards.some(card=>card.id===aCard.id));
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeDeleteB);
+  assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial); report('删除仅作用于当前账号，伪造归属不会删除他人同 ID 卡片');
   const agent=(await ok('/api/v1/agent/library',{agent:true})).value; assert.deepEqual(agent.cards,initial.cards);
   assert.equal((await req('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',agent:true,value:{expected_revision:1}})).status,403); report('机器凭证绑定原管理员题库，并仍禁止正式应用');
   assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:aEmail,password:'wrong-password'}})).status,401);
