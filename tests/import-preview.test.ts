@@ -66,8 +66,7 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
     expect(secondary.match(/^<details[^>]*>/)?.[0]).not.toMatch(/\sopen(?:\s|=|>)/);
     const questionOpeners = [...primary.matchAll(/<details class="change-row question-change"[^>]*>/g)].map(match => match[0]);
     expect(questionOpeners).toHaveLength(2);
-    expect(questionOpeners[0]).toMatch(/\sopen(?:\s|=|>)/);
-    expect(questionOpeners[1]).not.toMatch(/\sopen(?:\s|=|>)/);
+    for (const opener of questionOpeners) expect(opener).not.toMatch(/\sopen(?:\s|=|>)/);
   });
 
   it('只更新元数据或历史版本时，不生成缺少问答正文的空卡片', () => {
@@ -106,12 +105,12 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
     expect(secondary).toContain('历史版本编号');
   });
 
-  it('删除问题即使没有字段差异，也在正文中展开显示题名和移除提示', () => {
+  it('删除问题即使没有字段差异，也保留题名和移除提示且默认收起', () => {
     const { primary } = sections(render([{ kind: 'cards', id: 'removed-id', name: '准备移除的 Redis 问题', operation: 'remove', fields: [] }]));
     expect(primary).toContain('1 道题需要审阅');
     expect(primary).toContain('准备移除的 Redis 问题');
     expect(primary).toContain('这道题将从题库中移除');
-    expect(primary).toMatch(/<details class="change-row question-change"[^>]*\sopen(?:\s|=|>)/);
+    expect(primary.match(/<details class="change-row question-change"[^>]*>/)?.[0]).not.toMatch(/\sopen(?:\s|=|>)/);
   });
 
   it('完整恢复在折叠区外明确提示问题和其他资料的删除数量', () => {

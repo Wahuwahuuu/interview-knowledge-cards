@@ -19,14 +19,14 @@ function ReviewValue({ value, markdown }: { value: unknown; markdown: boolean })
   return <div className="review-value">{markdown ? <Markdown text={print(value)} /> : <p>{print(value)}</p>}</div>;
 }
 
-function QuestionChange({ change, initiallyOpen }: { change: Change; initiallyOpen: boolean }) {
+function QuestionChange({ change }: { change: Change }) {
   const fields = reviewFields.flatMap(([name, label]) => {
     const field = change.fields.find(field => field.field === name);
     if (field) return [{ ...field, label }];
     if (name === 'title' && change.operation !== 'update') return [{ field: name, before: change.operation === 'remove' ? change.name : undefined, after: change.operation === 'add' ? change.name : undefined, label }];
     return [];
   });
-  return <details className="change-row question-change" open={initiallyOpen || change.operation === 'remove'}>
+  return <details className="change-row question-change">
     <summary><span className={'change-badge ' + change.operation}>{operationNames[change.operation]}</span><span>{change.name}</span></summary>
     <div className="change-fields review-fields">
       {change.operation === 'remove' && <p className="notice warning">这道题将从题库中移除。</p>}
@@ -66,7 +66,7 @@ export function ImportPreview({ changes, mode }: { changes: Change[]; mode: 'mer
       {!questions.length && !!changes.length && <p className="muted">本次更新其他题库资料，详情已收起。</p>}
     </div>
     {mode === 'restore' && (removedQuestions > 0 || removedSupporting > 0) && <p className="notice warning">此次恢复将移除 {removedQuestions} 道题及 {removedSupporting} 条其他资料，请确认这些内容不再需要。</p>}
-    {!!questions.length && <div className="change-list question-changes">{questions.map((change, index) => <QuestionChange key={change.id} change={change} initiallyOpen={index === 0} />)}</div>}
+    {!!questions.length && <div className="change-list question-changes">{questions.map(change => <QuestionChange key={change.id} change={change} />)}</div>}
     {!!supporting.length && <details className="import-secondary">
       <summary>{mode === 'restore' ? '其他资料与恢复明细' : '其他导入资料（无需逐项审阅）'}</summary>
       <p className="muted">分类、知识点、来源、问题关联及系统字段会随本批保存，通常可以跳过。</p>
