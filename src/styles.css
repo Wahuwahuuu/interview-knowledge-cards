@@ -142,3 +142,34 @@
   .practice-scope-option>span{grid-column:2}
   .practice-setup-controls>.button-row>.primary{width:100%}
 }
+
+.graph-page{display:flex;flex-direction:column;gap:12px;min-width:0}
+.graph-page>.graph-scope{align-self:flex-start;margin:0;font-size:13px;color:#526749;gap:10px}
+.graph-page>.graph-scope select{width:240px;max-width:70vw;flex:none}
+.graph-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.graph-toolbar .graph-legend{position:static;display:flex;align-items:center;gap:16px;font-size:12px;color:#526749;pointer-events:auto}
+.graph-toolbar .graph-legend .muted{display:inline;font-size:11px;color:#5e6f55}
+.graph-toolbar .graph-controls{position:static;display:flex;flex-direction:row;align-items:center;gap:4px;padding:0;border:0;background:transparent;flex-wrap:wrap}
+.graph-toolbar .graph-controls button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:36px;min-height:36px;border-radius:7px;color:#526749}
+.graph-toolbar .graph-controls button:disabled{opacity:.45}
+.graph-toolbar .graph-controls button[aria-pressed=true]{background:#edf3e5;color:var(--green)}
+.graph-zoom-label{font-size:12px;color:#526749;font-variant-numeric:tabular-nums;min-width:43px;text-align:center}
+.graph-motion-toggle{font-size:12px;padding:8px 10px!important;border:1px solid var(--border);margin-left:5px;white-space:nowrap}
+.graph-page .graph-canvas{height:calc(100dvh - 310px);min-height:360px;max-height:900px;max-width:100%;cursor:grab;overscroll-behavior:contain}
+.graph-page .graph-canvas:active{cursor:grabbing}
+.graph-page .graph-caption{color:#526749;font-size:12px;line-height:1.8}
+.graph-page .graph-caption>span{min-width:0;overflow-wrap:anywhere}
+.graph-page .graph-caption>.text-button{white-space:nowrap;flex-shrink:0}
+.graph-empty{display:flex;min-height:360px;padding:32px;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#526749}
+.graph-empty p{margin:0 0 10px;font-weight:600}
+.graph-empty span{font-size:13px;line-height:1.8}
+@media(max-width:760px){
+  .graph-page>.graph-scope select{font-size:16px}
+  .graph-toolbar{padding:10px 12px;gap:10px}
+  .graph-toolbar .graph-legend{gap:12px;font-size:11px}
+  .graph-toolbar .graph-legend .muted{display:none}
+  .graph-toolbar .graph-controls{margin-left:auto}
+  .graph-toolbar .graph-controls button{min-height:40px;min-width:36px}
+  .graph-page .graph-canvas{height:calc(100dvh - 315px);min-height:330px}
+  .graph-page .graph-caption{padding:12px 14px;font-size:11px}
+}
