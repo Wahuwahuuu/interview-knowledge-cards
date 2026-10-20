@@ -12,3 +12,22 @@
 .discard-notice{position:sticky;top:-25px;z-index:2;border:1px solid #d8c58d;border-radius:9px;background:#fbf3dc;padding:17px;margin-bottom:22px;box-shadow:0 5px 18px #6f592518}.discard-notice strong{font-size:14px;color:#947832}.discard-notice p{font-size:12px;color:#9f8e5c;margin:8px 0 12px}
 .auth-shell{min-height:100vh;display:grid;grid-template-columns:1.1fr 1fr;background:#f7f8f5}.auth-intro{padding:48px clamp(32px,6vw,100px);display:flex;flex-direction:column;justify-content:space-between;gap:64px;background:#ecf1e8}.auth-intro .brand{text-decoration:none;color:inherit}.auth-intro h1{font-size:clamp(36px,4vw,56px);line-height:1.3;letter-spacing:-2px;margin:24px 0}.auth-intro h1 em{color:#397556;font-style:normal}.auth-intro p{color:#6d776b;line-height:1.9}.auth-intro>small{color:#6d776b}.auth-features{display:flex;gap:10px;margin-top:30px;flex-wrap:wrap}.auth-features span{background:#ffffff85;border:1px solid #d6e1cf;border-radius:30px;padding:9px 14px;font-size:13px}.auth-panel{align-self:center;width:min(440px,100%);padding:36px;margin:40px auto}.auth-heading>svg{color:#397556}.auth-heading h2{font-size:28px;margin:18px 0 8px}.auth-heading p{color:#788171;font-size:14px;line-height:1.8}.auth-panel .field{margin:18px 0}.auth-tabs{display:flex;gap:4px;border-bottom:1px solid #dde3d8;margin:26px 0}.auth-tabs button{padding:11px 28px;background:none;color:#7a8275;border:0;border-bottom:2px solid transparent}.auth-tabs button.selected{color:#397556;border-color:#397556;font-weight:600}.password-field{display:flex;align-items:center;position:relative}.password-field input{padding-right:44px;width:100%}.password-field .icon-button{position:absolute;right:7px}.auth-submit{width:100%;justify-content:center;margin:16px 0}.auth-panel>.text-button{font-size:12px;margin-top:20px}.account-settings form{max-width:440px}.account-settings .field{margin:18px 0}.account-settings h3,.panel h3{display:flex;align-items:center;gap:8px}.registration-control{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px;background:#f4f7f1;border-radius:12px;margin:20px 0}.registration-control p{margin:6px 0 0}.import-summary{padding:16px 18px;background:#f3f7ee;border-radius:10px;margin:0 0 20px}.import-summary>strong{font-size:17px;color:#36654c}.import-summary p{margin:8px 0;font-size:13px}.summary-pills{display:flex;gap:8px;flex-wrap:wrap}.summary-pills .pill{background:white}.batch-row[aria-expanded=true]{background:#f3f7ee}.auth-tabs button:disabled{opacity:.5}
 @media(max-width:760px){.auth-shell{grid-template-columns:1fr}.auth-intro{padding:24px;gap:26px}.auth-intro h1{font-size:32px;margin:18px 0 12px}.auth-intro>small,.auth-features{display:none}.auth-intro p{margin-bottom:0}.auth-panel{padding:26px 24px;margin:0 auto;width:min(480px,100%)}.auth-heading h2{font-size:25px}.registration-control{align-items:flex-start;flex-direction:column}.batch-row .button-row{gap:6px}.import-preview .section-title{align-items:flex-start;flex-wrap:wrap}}
+
+.question-change>summary{align-items:flex-start;font-size:14px;line-height:1.8;padding:16px}
+.question-change>summary>span:last-child{flex:1;min-width:0;overflow-wrap:anywhere}
+.question-change>summary::after{content:'展开';font-size:11px;color:#789267;white-space:nowrap;margin-left:auto}
+.question-change[open]>summary::after{content:'收起'}
+.review-fields{padding:6px 20px 22px}
+.review-field{margin:18px 0}
+.review-fields .review-field>h4{font-size:13px;color:#567046;margin-bottom:9px}
+.review-value{background:#fffefa;border:1px solid var(--border);border-radius:8px;padding:14px 18px;min-width:0;overflow-wrap:anywhere}
+.review-value>p{font-size:14px;line-height:1.9;white-space:pre-wrap;margin:0;color:#526749}
+.review-value .markdown>p:first-child{margin-top:0}
+.review-value .markdown>:last-child{margin-bottom:0}
+.review-value .markdown pre{max-height:none;white-space:pre;overflow:auto}
+.review-field .diff-columns>div{min-width:0}
+.review-field .diff-columns small{display:block;margin-bottom:7px;font-size:12px}
+.import-secondary{border-top:1px dashed var(--border);padding-top:18px;margin-top:24px}
+.import-secondary>summary{cursor:pointer;color:#809170;font-size:12px;line-height:1.8}
+.import-secondary>p{font-size:12px;margin:12px 0}
+@media(max-width:760px){.review-fields{padding:4px 12px 16px}.review-value{padding:12px}.question-change>summary{font-size:13px;padding:13px 12px}}

@@ -58,6 +58,8 @@ node scripts/agent-import.mjs examples/your-import.json
 
 人工导入：`POST /api/v1/imports/preview` → 查看差异 → `POST /api/v1/imports/{id}/apply`，确认请求包含 `expected_revision`。草稿过期时使用 `/repreview`，不要直接覆盖。`/cancel` 可取消尚未应用的草稿。
 
+网页默认只需要核对题目的标题、问题、复习提纲和完整答案；提纲与答案会按 Markdown 排版，更新内容提供前后对照。知识点、原始来源、出现记录、问题关联以及 ID、版本等系统字段统一收进默认折叠的「其他导入资料」。折叠只改变展示，整批校验、人工确认、版本冲突与完整导入范围保持一致。完整恢复涉及的移除会另外提示；只有附属资料变化时也会明确说明，不会显示为“没有变化”。
+
 完整导出：`GET /api/v1/export`；阅读版：`?format=markdown`。项目快照：`GET /api/v1/projects/{id}/snapshot`。历史：`GET /api/v1/cards/{id}/history`。恢复卡片：`POST /api/v1/cards/{id}/restore`，包含 `expected_revision` 和 `card_revision`。
 
 422 表示数据或引用错误，409 表示版本冲突或批次 ID 被复用，401/403 表示未登录或无对应权限。错误响应包含 `error.code`、`error.message`，字段错误还会列出 `details`。
