@@ -25,6 +25,9 @@ async function files(dir, prefix = '') { const entries = await readdir(dir, { wi
 // Only include the current build. Windows can leave old hashed files behind.
 const manifest = JSON.parse(await readFile('dist/.vite/manifest.json', 'utf8'));
 const currentAssets = new Set(Object.values(manifest).flatMap(entry => [entry.file, ...(entry.css ?? []), ...(entry.assets ?? [])]));
+// Vite's public manifest omits unnamed assets such as module workers.
+// The build plugin records every file emitted by this build, including workers.
+for (const path of JSON.parse(await readFile('dist/.vite/build-assets.json', 'utf8'))) currentAssets.add(path);
 const distDirectory = resolve('dist');
 if (await realpath(distDirectory) !== distDirectory) throw new Error('构建目录不能是指向其他位置的链接');
 for (const path of await files('dist/assets', 'assets/')) {

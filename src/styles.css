@@ -143,33 +143,49 @@
   .practice-setup-controls>.button-row>.primary{width:100%}
 }
 
-.graph-page{display:flex;flex-direction:column;gap:12px;min-width:0}
-.graph-page>.graph-scope{align-self:flex-start;margin:0;font-size:13px;color:#526749;gap:10px}
-.graph-page>.graph-scope select{width:240px;max-width:70vw;flex:none}
-.graph-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.graph-toolbar .graph-legend{position:static;display:flex;align-items:center;gap:16px;font-size:12px;color:#526749;pointer-events:auto}
-.graph-toolbar .graph-legend .muted{display:inline;font-size:11px;color:#5e6f55}
-.graph-toolbar .graph-controls{position:static;display:flex;flex-direction:row;align-items:center;gap:4px;padding:0;border:0;background:transparent;flex-wrap:wrap}
-.graph-toolbar .graph-controls button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:36px;min-height:36px;border-radius:7px;color:#526749}
-.graph-toolbar .graph-controls button:disabled{opacity:.45}
-.graph-toolbar .graph-controls button[aria-pressed=true]{background:#edf3e5;color:var(--green)}
-.graph-zoom-label{font-size:12px;color:#526749;font-variant-numeric:tabular-nums;min-width:43px;text-align:center}
-.graph-motion-toggle{font-size:12px;padding:8px 10px!important;border:1px solid var(--border);margin-left:5px;white-space:nowrap}
-.graph-page .graph-canvas{height:calc(100dvh - 310px);min-height:360px;max-height:900px;max-width:100%;cursor:grab;overscroll-behavior:contain}
-.graph-page .graph-canvas:active{cursor:grabbing}
-.graph-page .graph-caption{color:#526749;font-size:12px;line-height:1.8}
-.graph-page .graph-caption>span{min-width:0;overflow-wrap:anywhere}
-.graph-page .graph-caption>.text-button{white-space:nowrap;flex-shrink:0}
-.graph-empty{display:flex;min-height:360px;padding:32px;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#526749}
-.graph-empty p{margin:0 0 10px;font-weight:600}
-.graph-empty span{font-size:13px;line-height:1.8}
+main.graph-main{width:100%;max-width:none;height:calc(100dvh - 74px);min-height:360px;margin:0;padding:0;overflow:hidden;background:#fff}
+.graph-main .graph-page{display:block;width:100%;height:100%;min-width:0}
+.obsidian-graph{position:relative;width:100%;height:100%;min-height:360px;overflow:hidden;background:#fff;color:#333}
+.obsidian-graph-canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;cursor:grab;overscroll-behavior:contain}
+.obsidian-graph-canvas:focus-visible{outline:2px solid #8b6cef;outline-offset:-3px}
+.obsidian-graph-scope{position:absolute;top:14px;left:16px;max-width:calc(100% - 112px)}
+.obsidian-graph-scope select{width:auto;max-width:100%;min-height:32px;padding:5px 24px 5px 8px;border:0;border-radius:4px;background:#fffffff2;color:#666;font:13px Arial,"Microsoft YaHei",sans-serif;cursor:pointer}
+.obsidian-graph-actions{position:absolute;top:14px;right:14px;display:flex;gap:3px}
+.obsidian-graph-actions button,.obsidian-graph-settings header button,.obsidian-graph-zoom button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:4px;background:#fffffff2;color:#666;padding:0}
+.obsidian-graph-actions button:hover,.obsidian-graph-actions button[aria-expanded=true],.obsidian-graph-settings header button:hover,.obsidian-graph-zoom button:hover{background:#f1f1f1;color:#222}
+.obsidian-graph button:focus-visible,.obsidian-graph input:focus-visible,.obsidian-graph select:focus-visible,.obsidian-graph summary:focus-visible{outline:2px solid #8b6cef;outline-offset:2px}
+.obsidian-graph-zoom{position:absolute;bottom:14px;right:14px;display:flex;align-items:center;gap:2px;background:#fffffff2;border-radius:4px;color:#777}
+.obsidian-graph-zoom output{min-width:42px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums}
+.obsidian-graph-settings{position:absolute;z-index:3;top:54px;right:14px;width:280px;max-width:calc(100% - 28px);max-height:calc(100% - 112px);overflow:auto;overscroll-behavior:contain;border:1px solid #e2e2e2;border-radius:6px;padding:10px 14px;background:#fff;color:#444;font:13px/1.6 Arial,"Microsoft YaHei",sans-serif;scrollbar-color:#c9c9c9 #fafafa;scrollbar-width:thin}
+.obsidian-graph-settings header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.obsidian-graph-settings header strong{font-size:13px;font-weight:600}
+.obsidian-graph-settings details{border-top:1px solid #ededed;padding:10px 0}
+.obsidian-graph-settings summary{cursor:pointer;font-size:13px;font-weight:600}
+.obsidian-graph-search{display:flex;align-items:center;gap:7px;margin:12px 0 8px;border:1px solid #ddd;border-radius:4px;padding:0 8px;color:#888}
+.obsidian-graph-search input{min-width:0;width:100%;border:0;border-radius:0;background:none;padding:7px 0;font:12px Arial,"Microsoft YaHei",sans-serif;color:#333}
+.obsidian-graph-search input::placeholder{color:#777}
+.obsidian-graph-check{display:flex;justify-content:space-between;align-items:center;min-height:32px;margin:3px 0}
+.obsidian-graph-check input{width:auto;margin:0;accent-color:#8b6cef}
+.obsidian-graph-range{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:10px;min-height:36px;margin-top:8px;font-size:12px}
+.obsidian-graph-range input{width:100%;padding:0;border:0;border-radius:0;background:none;accent-color:#8b6cef}
+.obsidian-graph-results{display:grid;gap:2px;max-height:185px;overflow:auto;margin:8px 0}
+.obsidian-graph-results button{padding:6px 4px;text-align:left;font-size:12px;line-height:1.7;color:#555;border-radius:3px;overflow-wrap:anywhere}
+.obsidian-graph-results button:hover{background:#f3f0fb;color:#6951ad}
+.obsidian-graph-restart{display:flex;align-items:center;gap:7px;padding:7px 0;color:#6d5a9a;font-size:12px}
+.obsidian-graph-reset{padding:8px 0 4px;color:#666;font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.obsidian-graph-empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:80%;text-align:center;pointer-events:none;color:#666}
+.obsidian-graph-empty p{font-size:16px;color:#444;margin:0 0 8px}
+.obsidian-graph-empty span{font-size:13px;line-height:1.8}
+.obsidian-graph-notice{position:absolute;bottom:12px;left:16px;right:120px;font-size:12px;line-height:1.7;color:#6d5a40;background:#fff8ec;border-radius:4px;padding:8px 10px}
 @media(max-width:760px){
-  .graph-page>.graph-scope select{font-size:16px}
-  .graph-toolbar{padding:10px 12px;gap:10px}
-  .graph-toolbar .graph-legend{gap:12px;font-size:11px}
-  .graph-toolbar .graph-legend .muted{display:none}
-  .graph-toolbar .graph-controls{margin-left:auto}
-  .graph-toolbar .graph-controls button{min-height:40px;min-width:36px}
-  .graph-page .graph-canvas{height:calc(100dvh - 315px);min-height:330px}
-  .graph-page .graph-caption{padding:12px 14px;font-size:11px}
+  main.graph-main{height:calc(100dvh - 62px);min-height:330px}
+  .obsidian-graph{min-height:330px}
+  .obsidian-graph-scope{top:10px;left:8px}
+  .obsidian-graph-scope select{font-size:14px;min-height:40px}
+  .obsidian-graph-actions{top:10px;right:8px}
+  .obsidian-graph-actions button,.obsidian-graph-settings header button,.obsidian-graph-zoom button{width:40px;height:40px}
+  .obsidian-graph-settings{top:56px;right:8px;max-width:calc(100% - 16px);max-height:calc(100% - 122px)}
+  .obsidian-graph-search input{font-size:16px}
+  .obsidian-graph-check{min-height:40px}
+  .obsidian-graph-zoom{right:8px;bottom:8px}
 }

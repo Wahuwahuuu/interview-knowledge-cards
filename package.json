@@ -20,7 +20,7 @@
     "seed:demo": "node scripts/seed-local.mjs"
   },
   "dependencies": {
-    "cytoscape": "^3.33.0",
+    "d3-force": "^3.0.0",
     "hono": "^4.10.0",
     "jose": "^6.1.0",
     "lucide-react": "^0.468.0",
@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
-    "@types/cytoscape": "^3.31.0",
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^24.19.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

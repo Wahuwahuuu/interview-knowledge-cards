@@ -16,7 +16,7 @@
 | 知识卡 | 问题、口述提纲、完整答案、实现边界、源码依据分开维护 |
 | 面试来源 | 同一道题记录多次出现，保留当时的问法、回答、公司、岗位和轮次 |
 | 翻卡自测 | 全库或指定题库发问，支持顺序／随机切换、访问历史和手动掌握标记 |
-| 知识图谱 | 连接项目—问题—知识点，滚轮缩放、空白处平移、节点点击跳转；轻缓动态可暂停，节点不能拖动 |
+| 知识图谱 | 参考 Obsidian 的白底灰色节点与细线，支持拖动节点、悬停关联、单击打开、滚轮缩放与自然收敛布局；显示和力参数可调 |
 | 历史版本 | 修改保留快照，旧答案可恢复；过期编辑会提示冲突 |
 | 导入问题 | 人工填写多道问答并预览确认，或下载 JSON 模板、上传文件自动解析；预览内嵌在记录中 |
 | 备份与恢复 | 独立页面下载完整 JSON／Markdown 阅读版，上传完整备份后预览恢复 |
@@ -100,7 +100,7 @@ JSON v1 包含 `projects`、`topics`、`cards`、`sources`、`occurrences` 和 `
 
 ## 技术和目录
 
-React + TypeScript + Vite 构建前端；Hono 运行于 Cloudflare Workers，D1 保存普通关系表；Cytoscape.js 展示图谱，Service Worker 与 IndexedDB 保存页面外壳和用户选择的项目快照。
+React + TypeScript + Vite 构建前端；Hono 运行于 Cloudflare Workers，D1 保存普通关系表；Canvas 绘制图谱，独立 Web Worker 使用 d3-force 计算布局，Service Worker 与 IndexedDB 保存页面外壳和用户选择的项目快照。
 
 ```mermaid
 flowchart LR
