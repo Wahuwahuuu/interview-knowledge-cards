@@ -29,7 +29,7 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
     }
   }, [library.projects, draft.destination, draft.newProjectId]);
 
-  function editQuestion(id: string, field: Exclude<keyof ManualImportQuestion, 'id'>, value: string) {
+  function editQuestion<K extends Exclude<keyof ManualImportQuestion, 'id'>>(id: string, field: K, value: ManualImportQuestion[K]) {
     onEdit?.();
     setDraft(current => ({ ...current, questions: current.questions.map(question => question.id === id ? { ...question, [field]: value } : question) }));
     if (errorField === `${field}-${id}`) { setError(''); setErrorField(undefined); }
@@ -63,6 +63,7 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
       <div className="manual-import-questions">{draft.questions.map((question, index) => <section className="manual-import-question" key={question.id} aria-labelledby={`manual-question-${question.id}`}>
         <div className="manual-import-question-heading"><h4 id={`manual-question-${question.id}`}>第 {index + 1} 题</h4><button type="button" className="text-button" disabled={draft.questions.length === 1} aria-label={`移除第 ${index + 1} 题`} onClick={() => { onEdit?.(); setDraft(current => ({ ...current, questions: current.questions.filter(row => row.id !== question.id) })); setError(''); setErrorField(undefined); }}><Trash2 size={15} />移除</button></div>
         <label className="field"><span>标题 <span className="manual-import-required">（必填）</span></span><input name={`title-${question.id}`} required maxLength={150} value={question.title} aria-invalid={errorField === `title-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'title', event.target.value)} placeholder="例如：事务的四大特性" /></label>
+        <label className="priority-checkbox"><input type="checkbox" checked={!!question.important} onChange={event => editQuestion(question.id, 'important', event.target.checked)} />重点</label>
         <label className="field"><span>问题 <span className="manual-import-required">（必填）</span></span><textarea name={`question-${question.id}`} required maxLength={400_000} rows={3} value={question.question} aria-invalid={errorField === `question-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'question', event.target.value)} placeholder="例如：MySQL 事务的 ACID 特性分别是什么？" /></label>
         <label className="field"><span>复习提纲（面试口述版）</span><textarea name={`summary-${question.id}`} maxLength={400_000} rows={4} value={question.summary} aria-invalid={errorField === `summary-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'summary', event.target.value)} placeholder="填写面试时准备如何回答，可稍后补充" /></label>
         <label className="field"><span>完整答案（详细讲解）</span><textarea name={`answer-${question.id}`} maxLength={400_000} rows={6} value={question.answer} aria-invalid={errorField === `answer-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'answer', event.target.value)} placeholder="补充原理、示例和注意事项，可使用 Markdown" /></label>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeCardPriority } from './card-priority';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/, 'ID 只能包含字母、数字及 . _ : -');
 const text = z.string().max(400_000);
@@ -6,13 +7,14 @@ const base = { id, revision: z.number().int().positive().default(1), updated_at:
 export const projectSchema = z.object({ ...base, name: z.string().trim().min(1).max(100), description: text.default('') });
 export const topicSchema = z.object({ ...base, name: z.string().trim().min(1).max(100) });
 export const evidenceSchema = z.object({ label: z.string().min(1), path: z.string().default(''), line: z.number().int().positive().optional(), url: z.string().default('') });
-export const cardSchema = z.object({
+export const cardSchema = z.preprocess(normalizeCardPriority, z.object({
   ...base, project_id: id, title: z.string().trim().min(1).max(150), question: text.min(1),
   summary_md: text.default(''), answer_md: text.default(''), limitations_md: text.default(''),
   source_baseline: z.string().default(''), evidence: z.array(evidenceSchema).max(100).default([]),
   topic_ids: z.array(id).max(100).default([]), favorite: z.boolean().default(false),
+  important: z.boolean().default(false),
   mastery: z.enum(['review', 'mastered']).default('review'), archived: z.boolean().default(false),
-});
+}));
 export const sourceSchema = z.object({
   ...base, name: z.string().trim().min(1).max(150), kind: z.enum(['real', 'mock', 'note']),
   date: z.string().refine(v => !v || /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z')) && new Date(v + 'T00:00:00Z').toISOString().startsWith(v), '日期格式为 YYYY-MM-DD').default(''),
@@ -183,7 +185,7 @@ export function markdownExport(library: Library) {
   for (const project of library.projects) {
     lines.push(`## ${project.name}`, '', project.description, '');
     for (const card of library.cards.filter(c => c.project_id === project.id)) {
-      lines.push(`### ${card.title}${card.archived ? '（已归档）' : ''}`, '', card.question, '', '#### 复习提纲', '', card.summary_md, '', '#### 完整答案', '', card.answer_md, '', '#### 实现边界与待核实', '', card.limitations_md, '', `源码基线：${card.source_baseline || '未记录'}`, '', '#### 出现记录', '');
+      lines.push(`### ${card.title}${card.important ? '（重点）' : ''}${card.archived ? '（已归档）' : ''}`, '', card.question, '', '#### 复习提纲', '', card.summary_md, '', '#### 完整答案', '', card.answer_md, '', '#### 出现记录', '');
       for (const occurrence of library.occurrences.filter(o => o.card_id === card.id)) {
         const source = library.sources.find(s => s.id === occurrence.source_id)!;
         lines.push(`- ${source.date} ${source.name}｜${source.company} ${source.job} ${source.round}`, '', `原始问法：${occurrence.asked_question}`, '', occurrence.notes, '', occurrence.original_answer_md, '');

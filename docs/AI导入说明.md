@@ -14,14 +14,16 @@
 | --- | --- | --- |
 | projects | id, name | description |
 | topics | id, name | — |
-| cards | id, project_id, title, question | summary_md, answer_md, limitations_md, topic_ids, source_baseline, evidence, favorite, mastery, archived |
+| cards | id, project_id, title, question | summary_md, answer_md, topic_ids, important, favorite, mastery, archived |
 | sources | id, name, kind | date, company, job, round, notes, source_path, original_markdown |
 | occurrences | id, card_id, source_id, asked_question | original_answer_md, section, notes |
 | relations | id, from_card_id, to_card_id, kind | — |
 
 来源 kind：`real` 真实面试、`mock` 模拟面试、`note` 问答整理。关系 kind：`followup`（起点问题的追问是终点问题）、`related`（无向关系）。掌握状态 mastery：`review` 或 `mastered`。日期为有效的 `YYYY-MM-DD` 或空字符串。
 
-源码 evidence 为数组，每项可包含 `label`（必需）、`path`、`line`（正整数）、`url`。不要把整套源码上传，仅保存已有依据说明及定位信息。
+`important` 是独立的重点标记，值为 `true` 或 `false`，与 `favorite` 收藏互不影响。没有填写时默认不标重点；旧题目标题开头的装饰星号会自动清理并转换为重点，明确填写的布尔值优先。标题或问题中的行内代码、加粗等 Markdown 会正常排版；SQL 中的 `SELECT *` 不会被当成装饰星号。
+
+卡片页面和填写表单已移除「实现边界与待核实」「源码与文档依据」。旧的 `limitations_md`、`source_baseline`、`evidence` 字段仍可在 JSON 备份中保留并恢复，兼容已有资料。更新旧卡片时保留这些字段即可，无需新增。源码 evidence 为数组，每项可包含 `label`（必需）、`path`、`line`（正整数）、`url`。
 
 ID 长度 1–128，使用字母、数字、点、下划线、冒号或短横线，首字符为字母或数字。引用的项目、知识点、卡片或来源必须在题库中存在，或包含在同一批导入里。同名问题按不同 ID 保留，不做语义合并。知识点复用已有 ID，避免不必要的重名节点。
 
@@ -62,7 +64,7 @@ node scripts/agent-import.mjs examples/your-import.json
 
 网页打开待确认草稿时会自动重新预览。确认时若遇到 `409 REVISION_CONFLICT`，网页会更新预览并在确认按钮旁提示重新核对；这一轮不会自动再次调用确认接口。普通失败也会在按钮旁显示，不能将点击按钮视为导入成功，应以批次显示「已应用」为准。
 
-网页默认只需要核对题目的标题、问题、复习提纲和完整答案；提纲与答案会按 Markdown 排版，更新内容提供前后对照。知识点、原始来源、出现记录、问题关联以及 ID、版本等系统字段统一收进默认折叠的「其他导入资料」。折叠只改变展示，整批校验、人工确认、版本冲突与完整导入范围保持一致。完整恢复涉及的移除会另外提示；只有附属资料变化时也会明确说明，不会显示为“没有变化”。
+网页默认只需要核对题目的标题、问题、复习提纲、完整答案和重点标记；内容会按 Markdown 排版，更新内容提供前后对照。知识点、原始来源、出现记录、问题关联以及 ID、版本等系统字段统一收进默认折叠的「其他导入资料」。折叠只改变展示，整批校验、人工确认、版本冲突与完整导入范围保持一致。完整恢复涉及的移除会另外提示；只有附属资料变化时也会明确说明，不会显示为“没有变化”。
 
 完整导出：`GET /api/v1/export`；阅读版：`?format=markdown`。项目快照：`GET /api/v1/projects/{id}/snapshot`。历史：`GET /api/v1/cards/{id}/history`。恢复卡片：`POST /api/v1/cards/{id}/restore`，包含 `expected_revision` 和 `card_revision`。
 

@@ -85,7 +85,7 @@ app.post('/api/v1/cards/:id/restore', async c => {
   const entry = library.revisions.find(v => v.card_id === card?.id && v.revision === input.card_revision);
   if (!card || !entry) throw new AppError(404, '卡片或历史版本不存在');
   const target = structuredClone(library);
-  const restored = { ...entry.snapshot, favorite: card.favorite, mastery: card.mastery, revision: card.revision + 1, updated_at: new Date().toISOString() };
+  const restored = { ...entry.snapshot, favorite: card.favorite, important: card.important, mastery: card.mastery, revision: card.revision + 1, updated_at: new Date().toISOString() };
   target.cards[target.cards.findIndex(v => v.id === card.id)] = restored;
   target.revisions.push({ card_id: card.id, revision: restored.revision, saved_at: restored.updated_at, action: `恢复版本 ${entry.revision}`, snapshot: restored });
   return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));

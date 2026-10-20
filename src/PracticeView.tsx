@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Folder, LayoutGrid, ListOrdered, Shuffle } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
 import { canAdvancePractice, currentPracticeId, nextPractice, practiceCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
-import { Markdown } from './Markdown';
+import { InlineMarkdown, Markdown } from './Markdown';
 
 type Props = {
   library: Library;
@@ -76,9 +76,9 @@ export function PracticeView({ library, initialProjectId, offline, busy, onMark,
     {card ? <>
       <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(card.id) + 1} / ${session.ids.length} 题` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 题`}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
       <article className={'practice-card ' + (revealed ? 'revealed' : '')}>
-        <div className="practice-card-label"><span /> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
-        <h2>{card.question}</h2>
-        {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details>{card.limitations_md && <div className="boundary-note"><strong>记住这些边界</strong><Markdown text={card.limitations_md} /></div>}</div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
+        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}</span> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
+        <h2><InlineMarkdown text={card.question} /></h2>
+        {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
       </article>
       <div className="practice-actions">
         <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); setRevealed(false); setFullAnswerOpen(false); }}><ArrowLeft size={16} />上一题</button>

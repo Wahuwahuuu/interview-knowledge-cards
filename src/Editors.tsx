@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { X, Plus, Trash2, Save, Link2 } from 'lucide-react';
-import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Evidence, type Kind, type Library, type Source } from '../shared/model';
+import { X, Plus, Save, Link2 } from 'lucide-react';
+import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { api, newId } from './api';
 
-export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+export function Modal({ title, children, onClose, wide = false }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -39,7 +39,6 @@ export function CardForm(props: FormProps & { initial: Card }) {
   const [value, setValue] = useState(props.initial), [newTopics, setNewTopics] = useState('');
   const { busy, error, submit } = useSubmit(props);
   function set<K extends keyof Card>(key: K, next: Card[K]) { setValue(v => ({ ...v, [key]: next })); props.onDirty(true); }
-  function editEvidence(index: number, key: keyof Evidence, next: string) { const evidence = [...value.evidence]; evidence[index] = { ...evidence[index], [key]: key === 'line' ? next ? Number(next) : undefined : next }; set('evidence', evidence); }
   return <form onSubmit={event => {
     event.preventDefault();
     const topics = newTopics.split(/[,，\n]/).map(v => v.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
@@ -51,11 +50,9 @@ export function CardForm(props: FormProps & { initial: Card }) {
     <Field label="问题"><textarea required rows={3} value={value.question} onChange={e => set('question', e.target.value)} placeholder="让问题在脱离原对话时也能理解" /></Field>
     <Field label="复习提纲" hint="写下口述时的主线和关键词，支持 Markdown。"><textarea rows={7} value={value.summary_md} onChange={e => set('summary_md', e.target.value)} /></Field>
     <Field label="完整答案"><textarea rows={12} value={value.answer_md} onChange={e => set('answer_md', e.target.value)} /></Field>
-    <Field label="实现边界与待核实"><textarea rows={4} value={value.limitations_md} onChange={e => set('limitations_md', e.target.value)} placeholder="保留配置条件、未验证的指标及实际实现范围" /></Field>
+    <label className="priority-checkbox"><input type="checkbox" checked={value.important} onChange={event => set('important', event.target.checked)} />重点</label>
     <Field label="知识点"><div className="topic-options">{props.library.topics.map(t => <label key={t.id} className={'topic-check ' + (value.topic_ids.includes(t.id) ? 'checked' : '')}><input type="checkbox" checked={value.topic_ids.includes(t.id)} onChange={e => set('topic_ids', e.target.checked ? [...value.topic_ids, t.id] : value.topic_ids.filter(id => id !== t.id))} />{t.name}</label>)}</div></Field>
     <Field label="新增知识点" hint="多个知识点用逗号分隔，保存时会同时添加。"><input value={newTopics} onChange={e => { setNewTopics(e.target.value); props.onDirty(true); }} placeholder="例如：幂等、故障隔离" /></Field>
-    <Field label="源码基线"><input value={value.source_baseline} onChange={e => set('source_baseline', e.target.value)} placeholder="例如：2026-10-12 源码版本" /></Field>
-    <div className="field"><span>源码与文档依据</span>{value.evidence.map((item, i) => <div className="evidence-edit" key={i}><input aria-label={`依据 ${i + 1} 名称`} value={item.label} placeholder="名称" onChange={e => editEvidence(i, 'label', e.target.value)} /><input aria-label={`依据 ${i + 1} 路径`} value={item.path} placeholder="本地文件路径" onChange={e => editEvidence(i, 'path', e.target.value)} /><input aria-label={`依据 ${i + 1} 行号`} type="number" min={1} value={item.line ?? ''} placeholder="行号" onChange={e => editEvidence(i, 'line', e.target.value)} /><input aria-label={`依据 ${i + 1} 网址`} value={item.url} placeholder="网址（可选）" onChange={e => editEvidence(i, 'url', e.target.value)} /><button type="button" className="icon-button" aria-label={`删除依据 ${i + 1}`} onClick={() => set('evidence', value.evidence.filter((_, n) => n !== i))}><Trash2 size={16} /></button></div>)}<button type="button" className="text-button" onClick={() => set('evidence', [...value.evidence, { label: '', path: '', url: '' }])}><Plus size={15} />添加依据</button></div>
     <div className="form-row"><Field label="复习状态"><select value={value.mastery} onChange={e => set('mastery', e.target.value as Card['mastery'])}><option value="review">待复习</option><option value="mastered">已掌握</option></select></Field><Field label="归档状态"><select value={String(value.archived)} onChange={e => set('archived', e.target.value === 'true')}><option value="false">正常显示</option><option value="true">归档保留</option></select></Field></div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span className="muted">原始问答保留在出现记录中，修改会生成历史版本。</span><button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存卡片'}</button></div>
   </form>;

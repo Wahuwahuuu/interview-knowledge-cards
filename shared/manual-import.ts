@@ -6,6 +6,7 @@ export type ManualImportQuestion = {
   question: string;
   summary: string;
   answer: string;
+  important?: boolean;
 };
 
 export type ManualImportDraft = {
@@ -25,7 +26,7 @@ export class ManualImportError extends Error {
 }
 
 export function createManualImportQuestion(idFactory: IdFactory = createId): ManualImportQuestion {
-  return { id: idFactory('card'), title: '', question: '', summary: '', answer: '' };
+  return { id: idFactory('card'), title: '', question: '', summary: '', answer: '', important: false };
 }
 
 export function createManualImportDraft(projectId = '', idFactory: IdFactory = createId): ManualImportDraft {
@@ -67,7 +68,7 @@ export function buildManualImportEnvelope(library: Library, draft: ManualImportD
     const existing = existingCards.get(row.id);
     if (!validId.test(row.id) || ids.has(row.id) || existing && existing.project_id !== projectId) throw new ManualImportError('这份填写内容已失效，请检查导入记录后重新填写。');
     ids.add(row.id);
-    return { ...existing, id: row.id, project_id: projectId, title, question, summary_md: row.summary, answer_md: row.answer };
+    return { ...existing, id: row.id, project_id: projectId, title, question, summary_md: row.summary, answer_md: row.answer, important: row.important ?? existing?.important };
   });
   // Omit batch_id: changing the proposed text must create a fresh immutable preview batch.
   return importSchema.parse({ schema_version: 1, mode: 'merge', projects, cards });

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Change } from '../shared/model';
-import { Markdown } from './Markdown';
+import { InlineMarkdown, Markdown } from './Markdown';
 
 const reviewFields = [
   ['title', '标题'], ['question', '问题'], ['summary_md', '复习提纲'], ['answer_md', '完整答案'],
+  ['important', '重点'],
 ] as const;
 const reviewFieldNames = new Set<string>(reviewFields.map(([field]) => field));
 const kindNames: Record<string, string> = { projects: '项目', cards: '问题资料', topics: '知识点', sources: '面试来源', occurrences: '出现记录', relations: '问题关系' };
@@ -12,12 +13,13 @@ const operationNames = { add: '新增', update: '修改', remove: '移除' };
 
 function print(value: unknown) {
   if (value === undefined) return '未填写';
+  if (typeof value === 'boolean') return value ? '是' : '否';
   if (typeof value === 'string') return value || '（空）';
   return JSON.stringify(value, null, 2);
 }
 
-function ReviewValue({ value, markdown }: { value: unknown; markdown: boolean }) {
-  return <div className="review-value">{markdown ? <Markdown text={print(value)} /> : <p>{print(value)}</p>}</div>;
+function ReviewValue({ value, markdown, inline }: { value: unknown; markdown: boolean; inline: boolean }) {
+  return <div className="review-value">{markdown ? <Markdown text={print(value)} /> : <p>{inline ? <InlineMarkdown text={print(value)} /> : print(value)}</p>}</div>;
 }
 
 export function QuestionReview({ change }: { change: Change }) {
@@ -32,9 +34,9 @@ export function QuestionReview({ change }: { change: Change }) {
       {fields.map(field => <section className="review-field" key={field.field}>
         <h4>{field.label}</h4>
         {change.operation === 'update' ? <div className="diff-columns">
-          <div><small>当前内容</small><ReviewValue value={field.before} markdown={field.field.endsWith('_md')} /></div>
-          <div><small>导入后</small><ReviewValue value={field.after} markdown={field.field.endsWith('_md')} /></div>
-        </div> : <ReviewValue value={change.operation === 'remove' ? field.before : field.after} markdown={field.field.endsWith('_md')} />}
+          <div><small>当前内容</small><ReviewValue value={field.before} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} /></div>
+          <div><small>导入后</small><ReviewValue value={field.after} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} /></div>
+        </div> : <ReviewValue value={change.operation === 'remove' ? field.before : field.after} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} />}
       </section>)}
   </div>;
 }
@@ -68,7 +70,7 @@ export function ImportPreview({ changes, mode }: { changes: Change[]; mode: 'mer
   return <>
     <div className="import-summary">
       <strong>{questions.length ? `${questions.length} 道题需要审阅` : changes.length ? '本次没有题目正文变化' : '内容相同，没有需要应用的变化。'}</strong>
-      {!!questions.length && <p className="muted">只需核对标题、问题、复习提纲和完整答案。修改已有题目时，会对照显示本次改动。</p>}
+      {!!questions.length && <p className="muted">核对标题、问题、复习提纲、完整答案及重点标记。修改已有题目时，会对照显示本次改动。</p>}
       {!questions.length && !!changes.length && <p className="muted">本次更新其他题库资料，详情已收起。</p>}
     </div>
     {mode === 'restore' && (removedQuestions > 0 || removedSupporting > 0) && <p className="notice warning">此次恢复将移除 {removedQuestions} 道题及 {removedSupporting} 条其他资料，请确认这些内容不再需要。</p>}

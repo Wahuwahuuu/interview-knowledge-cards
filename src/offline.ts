@@ -1,4 +1,4 @@
-import { emptyLibrary, kinds, type Library } from '../shared/model';
+import { emptyLibrary, kinds, librarySchema, type Library } from '../shared/model';
 
 export type Download = { id: string; owner: string; downloaded_at: string; snapshot: Library };
 const DB_NAME = 'interview-cards-private-v1';
@@ -65,5 +65,5 @@ export function mergeDownloads(downloads: Download[], owner: string): Library {
     (library[kind] as unknown[]) = [...records.values()];
   }
   library.revision = Math.max(0, ...selected.map(v => v.snapshot.revision));
-  return library;
+  return librarySchema.parse(library);
 }

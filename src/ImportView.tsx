@@ -79,7 +79,7 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
     });
   }
   function template() {
-    downloadFile('import-template-v1.json', JSON.stringify({ schema_version: 1, mode: 'merge', projects: [{ id: 'example-project', name: '示例题库' }], cards: [{ id: 'example-question-1', project_id: 'example-project', title: '填写卡片标题', question: '填写面试问题', summary_md: '填写面试口述版', answer_md: '填写详细讲解' }], topics: [], sources: [], occurrences: [], relations: [] }, null, 2), 'application/json');
+    downloadFile('import-template-v1.json', JSON.stringify({ schema_version: 1, mode: 'merge', projects: [{ id: 'example-project', name: '示例题库' }], cards: [{ id: 'example-question-1', project_id: 'example-project', title: '填写卡片标题', question: '填写面试问题', summary_md: '填写面试口述版', answer_md: '填写详细讲解', important: false }], topics: [], sources: [], occurrences: [], relations: [] }, null, 2), 'application/json');
   }
   const listed = selectedHere ? batches.some(batch => batch.id === selectedHere.id) ? batches.map(batch => batch.id === selectedHere.id ? selectedHere : batch) : [selectedHere, ...batches] : batches;
   const visibleBatches = listed.filter(batch => batch.mode === pageMode);
