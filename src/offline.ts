@@ -1,5 +1,6 @@
 import { emptyLibrary, kinds, librarySchema, type Library } from '../shared/model';
 import { removeCard } from '../shared/card-actions';
+import { removeProject } from '../shared/project-actions';
 
 export type Download = { id: string; owner: string; downloaded_at: string; snapshot: Library };
 const DB_NAME = 'interview-cards-private-v1';
@@ -30,6 +31,15 @@ export async function removeCardFromDownloads(owner: string, cardId: string): Pr
   const downloads = await readDownloads();
   for (const download of downloads) if (download.owner === owner && download.snapshot.cards.some(card => card.id === cardId)) {
     await saveDownload({ ...download, snapshot: removeCard(librarySchema.parse(download.snapshot), cardId) });
+  }
+  return readDownloads();
+}
+export async function removeProjectFromDownloads(owner: string, projectId: string): Promise<Download[]> {
+  for (const download of await readDownloads()) if (download.owner === owner) {
+    if (download.id === projectId) await removeDownload(download.id);
+    else if (download.snapshot.projects.some(project => project.id === projectId)) {
+      await saveDownload({ ...download, snapshot: removeProject(librarySchema.parse(download.snapshot), projectId) });
+    }
   }
   return readDownloads();
 }

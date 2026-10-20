@@ -110,6 +110,41 @@ try {
   state = await apply({ ...beforeDeleteBackup, batch_id: 'recover-deleted-' + stamp });
   for (const kind of ['cards', 'sources', 'occurrences', 'relations', 'revisions']) assert.deepEqual(state[kind], beforeDelete[kind]);
   report('已有完整备份能够恢复已删除卡片及原有关系');
+  const projectId = 'test-project-' + stamp;
+  state = await ok('/changes', 'POST', { expected_revision: state.revision, changes: {
+    schema_version: 1,
+    cards: [{ id: 'archived-' + stamp, project_id: projectId, title: '归档题', question: '归档问题', archived: true, topic_ids: state.topics.slice(0, 1).map(topic => topic.id) }],
+    occurrences: [{ id: 'project-occurrence-' + stamp, card_id: 'test-card-' + stamp, source_id: state.sources[0].id, asked_question: '项目内原始问题' }],
+    relations: [{ id: 'cross-project-' + stamp, from_card_id: card.id, to_card_id: 'test-card-' + stamp, kind: 'related' }, { id: 'archived-link-' + stamp, from_card_id: 'archived-' + stamp, to_card_id: card.id, kind: 'followup' }],
+  } });
+  const beforeProjectDelete = await library(), projectBackup = await ok('/export');
+  assert.equal((await request('/projects/' + projectId, 'DELETE', { expected_revision: state.revision - 1 })).status, 409);
+  assert.equal((await request('/projects/' + projectId, 'DELETE', { expected_revision: state.revision }, true)).status, 403);
+  assert.equal((await request('/projects/missing-project', 'DELETE', { expected_revision: state.revision })).status, 404);
+  assert.deepEqual(await library(), beforeProjectDelete); report('项目删除拒绝过期提交、机器身份和不存在的项目，失败不改变题库');
+  state = await ok('/projects/' + projectId, 'DELETE', { expected_revision: state.revision });
+  const removedIds = new Set(beforeProjectDelete.cards.filter(card => card.project_id === projectId).map(card => card.id));
+  assert.equal(removedIds.size, 2);
+  assert.equal(state.revision, beforeProjectDelete.revision + 1);
+  assert.deepEqual(state.projects, beforeProjectDelete.projects.filter(project => project.id !== projectId));
+  assert.deepEqual(state.cards, beforeProjectDelete.cards.filter(card => !removedIds.has(card.id)));
+  assert.deepEqual(state.occurrences, beforeProjectDelete.occurrences.filter(record => !removedIds.has(record.card_id)));
+  assert.deepEqual(state.relations, beforeProjectDelete.relations.filter(relation => !removedIds.has(relation.from_card_id) && !removedIds.has(relation.to_card_id)));
+  assert.deepEqual(state.revisions, beforeProjectDelete.revisions.filter(entry => !removedIds.has(entry.card_id)));
+  assert.deepEqual(state.sources, beforeProjectDelete.sources); assert.deepEqual(state.topics, beforeProjectDelete.topics);
+  assert.deepEqual(await library(), state); report('项目及活动和归档题目一次删除，自身依赖清理，其他项目、知识点和来源原文保留');
+  assert.equal((await request('/projects/' + projectId + '/snapshot')).status, 404);
+  assert.ok(!(await ok('/graph')).elements.some(element => element.data.id === 'p:' + projectId || [...removedIds].some(id => element.data.id === 'c:' + id)));
+  assert.equal((await request('/projects/' + projectId, 'DELETE', { expected_revision: state.revision })).status, 404);
+  assert.deepEqual(await library(), state); report('已删项目在独立读取、图谱和离线快照中均不再出现，重复删除不改库');
+  state = await ok('/changes', 'POST', { expected_revision: state.revision, changes: { schema_version: 1, projects: [{ id: 'empty-' + stamp, name: '空项目' }] } });
+  state = await ok('/projects/empty-' + stamp, 'DELETE', { expected_revision: state.revision });
+  for (const project of [...state.projects]) state = await ok('/projects/' + project.id, 'DELETE', { expected_revision: state.revision });
+  assert.equal(state.projects.length, 0); assert.equal(state.cards.length, 0); assert.deepEqual(state.sources, beforeProjectDelete.sources);
+  report('空项目和最后一个项目都能删除，原始来源仍保留');
+  state = await apply({ ...projectBackup, batch_id: 'recover-project-' + stamp });
+  for (const kind of ['projects', 'cards', 'sources', 'topics', 'occurrences', 'relations', 'revisions']) assert.deepEqual(state[kind], beforeProjectDelete[kind]);
+  report('完整备份能够恢复已删除项目、归档卡片和所有原有关联');
   const staticFiles = await readdir('dist/assets'); let staticText = await readFile('dist/index.html', 'utf8'); for (const name of staticFiles) if (name.endsWith('.js')) staticText += await readFile(join('dist/assets', name), 'utf8');
   assert.ok(!staticText.includes(seed.occurrences[0].original_answer_md.slice(0, 55))); assert.ok(!staticText.includes('admin@example.com')); report('公开构建资源不包含私有问答或账户邮箱');
   await mkdir('test-results', { recursive: true }); await writeFile('test-results/api-verification.json', JSON.stringify({ passed: true, at: new Date().toISOString(), database: 'interview-cards-tests', scenarios: reports }, null, 2));

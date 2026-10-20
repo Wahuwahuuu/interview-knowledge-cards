@@ -1,7 +1,7 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { ArrowDownToLine, ArrowRight, BookOpen, ChevronRight, Copy, Edit3, Flag, Folder, GitBranch, GraduationCap, LayoutGrid, Link2, LogOut, Menu, Plus, RefreshCw, Search, Settings, Settings2, Star, Trash2, Upload, WifiOff, X } from 'lucide-react';
 import { type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
-import { ApiError, api, loadLibrary } from './api';
+import { ApiError, api, downloadFile, loadLibrary } from './api';
 import { blankRecord, CardForm, Modal, OccurrenceForm, RecordForm, RelationForm } from './Editors';
 import { ImportView } from './ImportView';
 import { AuthView } from './AuthView';
@@ -9,12 +9,17 @@ import { SettingsWindow } from './SettingsWindow';
 import type { Account } from '../shared/accounts';
 import { InlineMarkdown, Markdown } from './Markdown';
 import { CardCollection, CardLayoutToggle, type CardLayout } from './CardCollection';
-import { clearPrivateData, ensureOfflineShell, mergeDownloads, readDownloads, readOwner, removeDownload, removeCardFromDownloads, saveDownload, saveOwner, type Download } from './offline';
+import { clearPrivateData, ensureOfflineShell, mergeDownloads, readDownloads, readOwner, removeDownload, removeCardFromDownloads, removeProjectFromDownloads, saveDownload, saveOwner, type Download } from './offline';
 import { PracticeView } from './PracticeView';
-import { CardDeleteConfirmation, CardFullAnswer } from './CardContent';
+import { CardFullAnswer } from './CardContent';
+import { ConfirmationDialog } from './ConfirmationDialog';
+import { ContextMenu, MoreActionsButton, type ContextMenuItem } from './ContextMenu';
+import { projectExport } from '../shared/project-actions';
 
 type Page = 'home' | 'project' | 'graph' | 'practice' | 'manage';
 type Editor = { kind: Kind | 'appearance' | 'link'; value: Entity; expectedRevision: number };
+type MenuSelection = { kind: 'card' | 'project'; id: string; x: number; y: number; trigger: HTMLElement };
+type PendingDeletion = { kind: 'card' | 'project' | 'relation' | 'download'; id: string; name: string; expectedRevision: number };
 const sourceKinds = { real: '真实面试', mock: '模拟面试', note: '问答整理' };
 const Graph = lazy(() => import('./Graph').then(module => ({ default: module.Graph })));
 const plain = (text: string) => text.replace(/[#*`>\[\]]/g, '').replace(/\n+/g, ' ').trim();
@@ -33,10 +38,11 @@ export default function App() {
   const [toast, setToast] = useState(''), [operationBusy, setOperationBusy] = useState(false), [operationMessage, setOperationMessage] = useState(''), [sidebar, setSidebar] = useState(false), [downloads, setDownloads] = useState<Download[]>([]);
   const [manageTab, setManageTab] = useState('imports'), [practiceEntryId, setPracticeEntryId] = useState<string | undefined>(), [practiceKey, setPracticeKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [deleteCardId, setDeleteCardId] = useState<string | undefined>(), [deleteError, setDeleteError] = useState('');
+  const [contextMenu, setContextMenu] = useState<MenuSelection | null>(null);
+  const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion | null>(null), [deleteError, setDeleteError] = useState('');
   const deleteButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => { setDeleteCardId(undefined); setDeleteError(''); }, [detailId]);
-  useEffect(() => { if (!deleteCardId) deleteButton.current?.focus(); }, [deleteCardId]);
+  const deleteOrigin = useRef<HTMLElement | null>(null), deletionBusy = useRef(false);
+  useEffect(() => { setPendingDeletion(null); setDeleteError(''); setContextMenu(null); }, [account?.user_id]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null), dirtyRef = useRef(dirty); dirtyRef.current = dirty;
   const refreshSequence = useRef(0);
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 5500); }
@@ -85,7 +91,7 @@ export default function App() {
   const detail = library?.cards.find(c => c.id === detailId), source = library?.sources.find(s => s.id === sourceId);
   const mastered = activeCards.filter(c => c.mastery === 'mastered').length;
   function discard(continuation?: () => void) { if (dirtyRef.current) { setDiscardAction(() => continuation ?? (() => {})); return false; } setDirty(false); setEditor(null); return true; }
-  function navigate(next: Page, ...selection: [id?: string]) { const id = selection.length ? selection[0] : projectId; if (!discard(() => navigate(next, ...selection))) return; setPage(next); setProjectId(id); setSidebar(false); setDetailId(undefined); setSourceId(undefined); window.scrollTo({ top: 0 }); }
+  function navigate(next: Page, ...selection: [id?: string]) { const id = selection.length ? selection[0] : projectId; if (!discard(() => navigate(next, ...selection))) return; setContextMenu(null); setPage(next); setProjectId(id); setSidebar(false); setDetailId(undefined); setSourceId(undefined); window.scrollTo({ top: 0 }); }
   function openProject(id?: string) { if (!discard(() => openProject(id))) return; setSearch(''); setTopic(''); setStatus('all'); setFavorites(false); setImportantOnly(false); setArchived(false); navigate('project', id); }
   function openSettings() { if (!account || !discard(openSettings)) return; setDetailId(undefined); setSourceId(undefined); setSettingsOpen(true); }
   function openEditor(kind: Editor['kind'], value: Entity) { if (offline) { notify('修改需要联网'); return; } if (!discard(() => openEditor(kind, value)) || !library) return; setEditor({ kind, value: structuredClone(value), expectedRevision: library.revision }); }
@@ -93,22 +99,64 @@ export default function App() {
   function practice(initialProjectId?: string) { if (!discard(() => practice(initialProjectId))) return; setPracticeEntryId(initialProjectId); setProjectId(initialProjectId); setPracticeKey(key => key + 1); setDetailId(undefined); setSourceId(undefined); setPage('practice'); setSidebar(false); window.scrollTo({ top: 0 }); }
   async function action(task: () => Promise<void>, message = '正在保存…') { if (offline) { notify('这个操作需要联网'); return; } setOperationBusy(true); setOperationMessage(message); try { await task(); } catch (error) { await handleError(error); } finally { setOperationBusy(false); setOperationMessage(''); } }
   async function updateCard(card: Card, patch: Partial<Card>) { if (!library) return; await action(async () => { const next = await api<Library>(`/cards/${card.id}`, { method: 'PUT', body: JSON.stringify({ expected_revision: library.revision, value: { ...card, ...patch } }) }); setLibrary(next); notify('已保存'); }); }
-  function cancelCardDeletion() { setDeleteCardId(undefined); setDeleteError(''); deleteButton.current?.focus(); }
-  async function deleteKnowledgeCard(card: Card) {
+  function showContextMenu(event: MouseEvent<HTMLElement>, kind: MenuSelection['kind'], id: string) {
+    event.preventDefault(); event.stopPropagation();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const focused = document.activeElement, clicked = event.target instanceof Element ? event.target.closest<HTMLElement>('button') : null;
+    const trigger = clicked && event.currentTarget.contains(clicked) ? clicked : focused instanceof HTMLElement && event.currentTarget.contains(focused) ? focused : event.currentTarget.querySelector<HTMLElement>('button') ?? event.currentTarget;
+    setContextMenu({ kind, id, x: event.clientX || bounds.left, y: event.clientY || bounds.bottom, trigger });
+  }
+  function closeContextMenu(restoreFocus = false) { if (restoreFocus) contextMenu?.trigger.focus(); setContextMenu(null); }
+  function requestDeletion(kind: PendingDeletion['kind'], id: string, name: string) {
     if (!library || operationBusy) return;
-    setDeleteError('');
-    await action(async () => {
-      let next: Library;
-      try { next = await api<Library>(`/cards/${card.id}`, { method: 'DELETE', body: JSON.stringify({ expected_revision: library.revision }) }); }
-      catch (error) {
-        if (error instanceof ApiError && error.status === 409) { await refresh(); setDeleteError('题库刚有更新，已刷新。请核对后再次确认删除。'); }
-        else setDeleteError(error instanceof Error ? error.message : '删除失败，请重试');
-        throw error;
+    if (kind !== 'download' && offline) { notify('删除需要联网'); return; }
+    if (!discard(() => requestDeletion(kind, id, name))) return;
+    deleteOrigin.current = document.activeElement as HTMLElement | null;
+    setContextMenu(null); setDeleteError(''); setPendingDeletion({ kind, id, name, expectedRevision: library.revision });
+  }
+  function cancelDeletion() {
+    if (deletionBusy.current) return;
+    setPendingDeletion(null); setDeleteError('');
+    requestAnimationFrame(() => { if (deleteOrigin.current?.isConnected) deleteOrigin.current.focus(); else deleteButton.current?.focus(); });
+  }
+  async function confirmDeletion() {
+    if (!library || !pendingDeletion || operationBusy || deletionBusy.current) return;
+    if (pendingDeletion.kind !== 'download' && offline) { setDeleteError('当前离线，请联网后再次确认。'); return; }
+    const target = pendingDeletion, sequence = refreshSequence.current;
+    deletionBusy.current = true; setOperationBusy(true); setOperationMessage('正在删除…'); setDeleteError('');
+    try {
+      if (target.kind === 'download') {
+        await removeDownload(target.id);
+        const saved = await readDownloads(); if (sequence !== refreshSequence.current) return; setDownloads(saved);
+        if (offline) { setLibrary(mergeDownloads(saved, owner)); if (projectId === target.id) { setProjectId(undefined); setPage('home'); } }
+        setPendingDeletion(null); notify('该项目的本机离线内容已移除');
+      } else {
+        const endpoint = target.kind === 'card' ? 'cards' : target.kind === 'project' ? 'projects' : 'relations';
+        const next = await api<Library>(`/${endpoint}/${target.id}`, { method: 'DELETE', body: JSON.stringify({ expected_revision: target.expectedRevision }) });
+        if (sequence !== refreshSequence.current) return;
+        setLibrary(next); setPendingDeletion(null);
+        if (detailId && !next.cards.some(card => card.id === detailId)) setDetailId(undefined);
+        if (target.kind === 'project' && projectId === target.id) { setProjectId(undefined); setPracticeEntryId(undefined); setPage('home'); setSidebar(false); }
+        try {
+          if (target.kind === 'card') setDownloads(await removeCardFromDownloads(owner, target.id));
+          else if (target.kind === 'project') setDownloads(await removeProjectFromDownloads(owner, target.id));
+          else {
+            for (const saved of await readDownloads()) if (saved.owner === owner && saved.snapshot.relations.some(relation => relation.id === target.id)) await saveDownload({ ...saved, snapshot: { ...saved.snapshot, relations: saved.snapshot.relations.filter(relation => relation.id !== target.id) } });
+            await refreshDownloads();
+          }
+          notify(target.kind === 'card' ? '知识卡已删除' : target.kind === 'project' ? '项目及其中的知识卡已删除' : '关系已移除');
+        } catch { notify('已删除，本机离线内容更新失败，请联网重新下载项目'); }
       }
-      setLibrary(next); setDetailId(undefined); setDeleteCardId(undefined);
-      try { setDownloads(await removeCardFromDownloads(owner, card.id)); notify('知识卡已删除'); }
-      catch { notify('知识卡已删除，本机离线内容更新失败，请重新下载项目'); }
-    }, '正在删除…');
+    } catch (error) {
+      if (sequence !== refreshSequence.current) return;
+      if (error instanceof ApiError && error.status === 409) {
+        try {
+          const next = await loadLibrary(); if (sequence !== refreshSequence.current) return; setLibrary(next);
+          setPendingDeletion(current => current ? { ...current, expectedRevision: next.revision } : null);
+          setDeleteError('题库刚有更新，已刷新。请重新核对项目或题目及影响范围，再次确认删除。');
+        } catch (refreshError) { setDeleteError('刷新题库失败，请取消后刷新页面再试。'); await handleError(refreshError); }
+      } else { setDeleteError(error instanceof Error ? error.message : '删除失败，请重试'); await handleError(error); }
+    } finally { deletionBusy.current = false; setOperationBusy(false); setOperationMessage(''); }
   }
   async function downloadProject(id: string) {
     await action(async () => {
@@ -116,6 +164,14 @@ export default function App() {
       const value = await api<Omit<Download, 'id'>>(`/projects/${id}/snapshot`);
       await saveDownload({ id, ...value }); await refreshDownloads(); notify('项目已下载，可以离线阅读和翻卡');
     }, '正在下载项目…');
+  }
+  async function exportProject(id: string) {
+    await action(async () => {
+      const current = await loadLibrary(), bundle = projectExport(current, id);
+      const name = bundle.projects[0].name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+      downloadFile(`${name}-题库.json`, JSON.stringify(bundle, null, 2), 'application/json');
+      notify('项目已导出，包含归档题目，可在导入问题页面上传');
+    }, '正在导出项目…');
   }
   async function logout() {
     if (loading || operationBusy || !discard(() => { void logout(); })) return;
@@ -130,6 +186,30 @@ export default function App() {
   async function copy(text: string) { try { await navigator.clipboard.writeText(text); notify('定位信息已复制'); } catch { notify('复制暂不可用，请长按下方定位信息复制'); } }
   const buttonsDisabled = offline || operationBusy;
   const formProps = library && editor ? { library, expectedRevision: editor.expectedRevision, onSaved: (next: Library) => { setLibrary(next); setDirty(false); dirtyRef.current = false; setDiscardAction(null); setEditor(null); notify('已保存'); }, onDirty: setDirty, onError: (error: unknown) => { void handleError(error); } } : null;
+  const menuCard = contextMenu?.kind === 'card' ? library?.cards.find(card => card.id === contextMenu.id) : undefined;
+  const menuProject = contextMenu?.kind === 'project' ? library?.projects.find(project => project.id === contextMenu.id) : undefined;
+  const menuItems: ContextMenuItem[] = menuCard ? [
+    { label: '打开知识卡', icon: <BookOpen size={16} />, onSelect: () => setDetailId(menuCard.id) },
+    { label: '编辑知识卡', icon: <Edit3 size={16} />, disabled: buttonsDisabled, onSelect: () => openEditor('cards', menuCard) },
+    { label: menuCard.favorite ? '取消收藏' : '收藏', icon: <Star size={16} />, disabled: buttonsDisabled, onSelect: () => void updateCard(menuCard, { favorite: !menuCard.favorite }) },
+    { label: menuCard.important ? '取消重点' : '设为重点', icon: <Flag size={16} />, disabled: buttonsDisabled, onSelect: () => void updateCard(menuCard, { important: !menuCard.important }) },
+    { label: menuCard.mastery === 'mastered' ? '标为待复习' : '标为已掌握', icon: <GraduationCap size={16} />, disabled: buttonsDisabled, onSelect: () => void updateCard(menuCard, { mastery: menuCard.mastery === 'mastered' ? 'review' : 'mastered' }) },
+    { label: '删除知识卡', icon: <Trash2 size={16} />, danger: true, disabled: buttonsDisabled, onSelect: () => requestDeletion('card', menuCard.id, menuCard.title) },
+  ] : menuProject ? [
+    { label: '打开项目', icon: <Folder size={16} />, onSelect: () => openProject(menuProject.id) },
+    { label: '修改名称与说明', icon: <Edit3 size={16} />, disabled: buttonsDisabled, onSelect: () => openEditor('projects', menuProject) },
+    { label: '复习这个题库', icon: <GraduationCap size={16} />, onSelect: () => practice(menuProject.id) },
+    { label: '导出题库 JSON', icon: <ArrowDownToLine size={16} />, disabled: buttonsDisabled, onSelect: () => void exportProject(menuProject.id) },
+    { label: '下载离线内容', icon: <ArrowDownToLine size={16} />, disabled: buttonsDisabled, onSelect: () => void downloadProject(menuProject.id) },
+    { label: '删除项目', icon: <Trash2 size={16} />, danger: true, disabled: buttonsDisabled, onSelect: () => requestDeletion('project', menuProject.id, menuProject.name) },
+  ] : [];
+  const deleteCount = pendingDeletion?.kind === 'project' ? library?.cards.filter(card => card.project_id === pendingDeletion.id).length ?? 0 : 0;
+  const deletionTitle = pendingDeletion?.kind === 'project' ? '删除这个项目？' : pendingDeletion?.kind === 'card' ? '删除这张知识卡？' : pendingDeletion?.kind === 'relation' ? '移除这条问题关联？' : '移除本机离线内容？';
+  const deletionDescription = pendingDeletion?.kind === 'project'
+    ? `将删除项目及其中全部 ${deleteCount} 张知识卡（包含归档卡片），并移除这些卡片的来源关联与问题连线。原始来源、共用知识点和其他项目会保留。删除后无法直接撤销，可通过此前的完整备份恢复。`
+    : pendingDeletion?.kind === 'card' ? '这张卡片及其来源关联与问题连线会一并移除，原始来源仍然保留。删除后无法直接撤销，可通过此前的完整备份恢复。'
+    : pendingDeletion?.kind === 'relation' ? '将移除这两道题之间的连线，两张知识卡及答案都会保留。'
+    : '将移除这个项目在当前设备上下载的离线内容，云端项目和知识卡会保留。之后可以重新下载。';
 
   if (window.location.pathname.startsWith('/bootstrap-admin/') || (!loading && (authError || account?.needs_password_setup))) return <AuthView setup={account?.needs_password_setup ? account : undefined} onLogin={async () => { setPage('home'); setProjectId(undefined); setDetailId(undefined); setManageTab('imports'); await refresh(); }} />;
 
@@ -137,7 +217,7 @@ export default function App() {
     <aside className={'sidebar ' + (sidebar ? 'open' : '')}>
       <button className="brand" onClick={() => navigate('home', undefined)}><img src="/icon.svg" alt="" /><span>面试知识卡<small>把经验，变成自己的答案</small></span></button>
       <div className="side-section"><span className="side-label">我的书架</span><nav><button className={page === 'home' ? 'active' : ''} onClick={() => navigate('home', undefined)}><LayoutGrid size={18} />全部项目<span className="nav-count">{library?.projects.length ?? 0}</span></button><button className={page === 'practice' ? 'active' : ''} onClick={() => practice()}><GraduationCap size={18} />翻卡自测</button><button className={page === 'graph' ? 'active' : ''} onClick={() => navigate('graph', undefined)}><GitBranch size={18} />知识图谱</button></nav></div>
-      <div className="side-section projects-nav"><div className="side-label"><span>项目</span><button aria-label="新增项目" className="icon-button" disabled={buttonsDisabled || !library} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} /></button></div><nav>{library?.projects.map((p, i) => <button className={projectId === p.id && page !== 'home' ? 'active' : ''} key={p.id} onClick={() => openProject(p.id)}><span className={'project-symbol symbol-' + i % 4}><Folder size={15} /></span><span className="nav-project-name">{p.name}</span><span className="nav-count">{activeCards.filter(c => c.project_id === p.id).length}</span></button>)}</nav>{!library?.projects.length && <p className="microcopy">先建立项目，再慢慢积累问题。</p>}</div>
+      <div className="side-section projects-nav"><div className="side-label"><span>项目</span><button aria-label="新增项目" className="icon-button" disabled={buttonsDisabled || !library} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} /></button></div><nav>{library?.projects.map((p, i) => <button className={projectId === p.id && page !== 'home' ? 'active' : ''} key={p.id} onContextMenu={event => showContextMenu(event, 'project', p.id)} onClick={() => openProject(p.id)}><span className={'project-symbol symbol-' + i % 4}><Folder size={15} /></span><span className="nav-project-name">{p.name}</span><span className="nav-count">{activeCards.filter(c => c.project_id === p.id).length}</span></button>)}</nav>{!library?.projects.length && <p className="microcopy">先建立项目，再慢慢积累问题。</p>}</div>
       <div className="sidebar-bottom"><button className={page === 'manage' ? 'active' : ''} onClick={() => navigate('manage', undefined)}><Settings2 size={17} />维护与备份</button><div className="account"><span className="avatar">{account?.display_name?.slice(0,1) || '我'}</span><div><strong>{account?.display_name || '我的私人题库'}</strong><small>{offline ? '离线复习中' : local ? '本地预览' : '私人账户'}</small></div><button className="icon-button" aria-label="打开设置" aria-haspopup="dialog" disabled={!account || loading || operationBusy} onClick={openSettings}><Settings size={17} /></button><button className="icon-button" aria-label="退出登录并清除离线内容" disabled={loading || operationBusy} onClick={() => void logout()}><LogOut size={16} /></button></div></div>
     </aside>
     {sidebar && <button className="sidebar-scrim" aria-label="收起导航" onClick={() => setSidebar(false)} />}
@@ -158,12 +238,12 @@ export default function App() {
             <section className="welcome"><div className="welcome-copy"><span className="eyebrow"><i />我的私人知识库</span><h1>把回答，<br /><em>记得更清楚。</em></h1><p>把每一次追问留下来。按项目整理，<br className="desktop-break" />沿着知识点复习，在下一次面试中从容表达。</p><button className="primary" disabled={!activeCards.length} onClick={() => practice()}><BookOpen size={17} />开始一轮复习<ArrowRight size={17} /></button></div><div className="welcome-art" aria-hidden="true"><div className="art-card art-back"><span>一点一点，积累起来</span></div><div className="art-card art-front"><div className="art-card-top"><span>我的面试笔记</span><Star size={16} /></div><div className="art-lines"><i /><i /><i /></div><div className="art-note"><GitBranch size={21} /><span>问题 · 答案 · 关联</span></div><span className="art-tab">随时翻一张</span></div><div className="art-spark spark-one">✦</div><div className="art-spark spark-two">✦</div></div></section>
             <section className="stats"><div><span>已存问题</span><strong>{activeCards.length.toString().padStart(2, '0')}<small>张卡片</small></strong></div><div><span>项目书架</span><strong>{library.projects.length.toString().padStart(2, '0')}<small>个项目</small></strong></div><div><span>已掌握</span><strong>{mastered.toString().padStart(2, '0')}<small>继续积累</small></strong></div><div><span>知识连接</span><strong>{library.topics.length.toString().padStart(2, '0')}<small>个知识点</small></strong></div></section>
             <div className="section-title space-above"><div><h2>我的项目</h2><p>从熟悉的项目开始，找回每一道题的上下文。</p></div><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} />新增项目</button></div>
-            <div className="project-grid">{library.projects.map((p, i) => { const cards = activeCards.filter(c => c.project_id === p.id), known = cards.filter(c => c.mastery === 'mastered').length; return <button className="project-tile" key={p.id} onClick={() => { setSearch(''); setTopic(''); setFavorites(false); setImportantOnly(false); setStatus('all'); navigate('project', p.id); }}><div className="project-tile-top"><span className={'project-icon symbol-' + i % 4}><Folder size={24} /></span><span className="pill">{cards.length} 个问题</span></div><h3>{p.name}</h3><p>{p.description || '为这个项目积累问答、来源和知识点。'}</p><div className="project-progress"><span>已掌握 {known} / {cards.length}</span><span>打开项目 <ArrowRight size={15} /></span></div><div className="progress-track"><i style={{ width: `${cards.length ? known / cards.length * 100 : 0}%` }} /></div></button>; })}{!library.projects.length && <div className="empty-library"><BookOpen size={30} /><h3>书架准备好了</h3><p>创建自己的第一个项目，或导入整理好的问答。</p><button className="primary" onClick={() => { setManageTab('imports'); navigate('manage', undefined); }}><Upload size={16} />打开导入入口</button></div>}</div>
+            <div className="project-grid">{library.projects.map((p, i) => { const cards = activeCards.filter(c => c.project_id === p.id), known = cards.filter(c => c.mastery === 'mastered').length; return <div className="project-tile-wrap" key={p.id} onContextMenu={event => showContextMenu(event, 'project', p.id)}><button className="project-tile" onClick={() => { setSearch(''); setTopic(''); setFavorites(false); setImportantOnly(false); setStatus('all'); navigate('project', p.id); }}><div className="project-tile-top"><span className={'project-icon symbol-' + i % 4}><Folder size={24} /></span><span className="pill">{cards.length} 个问题</span></div><h3>{p.name}</h3><p>{p.description || '为这个项目积累问答、来源和知识点。'}</p><div className="project-progress"><span>已掌握 {known} / {cards.length}</span><span>打开项目 <ArrowRight size={15} /></span></div><div className="progress-track"><i style={{ width: `${cards.length ? known / cards.length * 100 : 0}%` }} /></div></button><MoreActionsButton label={`项目操作：${p.name}`} expanded={contextMenu?.kind === 'project' && contextMenu.id === p.id} onOpen={event => showContextMenu(event, 'project', p.id)} /></div>; })}{!library.projects.length && <div className="empty-library"><BookOpen size={30} /><h3>书架准备好了</h3><p>创建自己的第一个项目，或导入整理好的问答。</p><button className="primary" onClick={() => { setManageTab('imports'); navigate('manage', undefined); }}><Upload size={16} />打开导入入口</button></div>}</div>
             <div className="quiet-footer"><GitBranch size={16} /><span>每次补充一个问题，知识之间就多一条连接。</span></div>
           </>}
           {page === 'project' && <>
-            <div className="page-heading"><div><span className="eyebrow">{project ? '项目书架' : '全部项目'}</span><h1>{project?.name ?? '所有知识卡'}</h1><p>{project?.description ?? '把问题、追问和知识点连起来，沿着熟悉的线索复习。'}</p></div><div className="button-row">{project && <><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('projects', project)}><Edit3 size={15} />项目说明</button><button className="secondary" disabled={buttonsDisabled} onClick={() => void downloadProject(project.id)}><ArrowDownToLine size={16} />{downloads.some(d => d.id === project.id) ? '更新离线内容' : '下载项目'}</button></>}<button className="primary" disabled={buttonsDisabled} onClick={addCard}><Plus size={16} />添加问题</button></div></div>
-            <><div className="filters"><label className="search-box"><Search size={17} /><input aria-label="搜索问题与答案" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索问题、答案、关键词…" /></label><select aria-label="按知识点筛选" value={topic} onChange={e => setTopic(e.target.value)}><option value="">所有知识点</option>{library.topics.filter(t => scopeCards.some(c => c.topic_ids.includes(t.id))).map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</select><select aria-label="按掌握状态筛选" value={status} onChange={e => setStatus(e.target.value)}><option value="all">全部状态</option><option value="review">待复习</option><option value="mastered">已掌握</option></select><button className={'secondary ' + (favorites ? 'filter-active' : '')} onClick={() => setFavorites(!favorites)}><Star size={15} fill={favorites ? 'currentColor' : 'none'} />收藏</button><button className={'secondary ' + (importantOnly ? 'filter-active' : '')} aria-pressed={importantOnly} onClick={() => setImportantOnly(!importantOnly)}><Flag size={15} />重点</button></div><div className="question-display-bar"><span className="muted">{filtered.length} 个问题 · {scopeCards.filter(card => card.mastery === 'mastered').length} 个已掌握</span><CardLayoutToggle layout={cardLayout} onChange={setCardLayout} /></div><CardCollection cards={filtered} library={library} layout={cardLayout} onOpen={setDetailId} onFavorite={card => void updateCard(card, { favorite: !card.favorite })} disabled={buttonsDisabled} />{!filtered.length && <div className="empty-state compact"><Search size={27} /><h3>这里还没有匹配的问题</h3><p>调整筛选条件，或添加一张新卡。</p></div>}<label className="checkbox-line"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />显示归档卡片</label></>
+            <div className="page-heading"><div><span className="eyebrow">{project ? '项目书架' : '全部项目'}</span><h1>{project?.name ?? '所有知识卡'}</h1><p>{project?.description ?? '把问题、追问和知识点连起来，沿着熟悉的线索复习。'}</p></div><div className="button-row">{project && <><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('projects', project)}><Edit3 size={15} />项目说明</button><button className="secondary" disabled={buttonsDisabled} onClick={() => void downloadProject(project.id)}><ArrowDownToLine size={16} />{downloads.some(d => d.id === project.id) ? '更新离线内容' : '下载项目'}</button><button className="secondary delete-action" disabled={buttonsDisabled} onClick={() => requestDeletion('project', project.id, project.name)}><Trash2 size={15} />删除项目</button></>}<button className="primary" disabled={buttonsDisabled} onClick={addCard}><Plus size={16} />添加问题</button></div></div>
+            <><div className="filters"><label className="search-box"><Search size={17} /><input aria-label="搜索问题与答案" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索问题、答案、关键词…" /></label><select aria-label="按知识点筛选" value={topic} onChange={e => setTopic(e.target.value)}><option value="">所有知识点</option>{library.topics.filter(t => scopeCards.some(c => c.topic_ids.includes(t.id))).map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</select><select aria-label="按掌握状态筛选" value={status} onChange={e => setStatus(e.target.value)}><option value="all">全部状态</option><option value="review">待复习</option><option value="mastered">已掌握</option></select><button className={'secondary ' + (favorites ? 'filter-active' : '')} onClick={() => setFavorites(!favorites)}><Star size={15} fill={favorites ? 'currentColor' : 'none'} />收藏</button><button className={'secondary ' + (importantOnly ? 'filter-active' : '')} aria-pressed={importantOnly} onClick={() => setImportantOnly(!importantOnly)}><Flag size={15} />重点</button></div><div className="question-display-bar"><span className="muted">{filtered.length} 个问题 · {scopeCards.filter(card => card.mastery === 'mastered').length} 个已掌握</span><CardLayoutToggle layout={cardLayout} onChange={setCardLayout} /></div><CardCollection cards={filtered} library={library} layout={cardLayout} onOpen={setDetailId} onFavorite={card => void updateCard(card, { favorite: !card.favorite })} disabled={buttonsDisabled} onMenu={(event, card) => showContextMenu(event, 'card', card.id)} menuCardId={contextMenu?.kind === 'card' ? contextMenu.id : undefined} />{!filtered.length && <div className="empty-state compact"><Search size={27} /><h3>这里还没有匹配的问题</h3><p>调整筛选条件，或添加一张新卡。</p></div>}<label className="checkbox-line"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />显示归档卡片</label></>
           </>}
           {page === 'graph' && <section className="graph-page" aria-label="知识图谱">
             <Suspense fallback={<div className="empty-state compact"><GitBranch size={28} /><p>正在打开知识图谱…</p></div>}>
@@ -175,18 +255,20 @@ export default function App() {
             <div className="page-heading"><div><h1>维护与备份</h1><p>填写问答、导入题库，或保存和恢复备份。</p></div></div><div className="manage-tabs">{[['imports', '导入问题'], ['backup', '备份与恢复'], ['topics', '知识点'], ['offline', '离线内容'], ['help', '使用说明']].map(([id, name]) => <button key={id} className={manageTab === id ? 'selected' : ''} onClick={() => setManageTab(id)}>{name}</button>)}</div>
             {(manageTab === 'imports' || manageTab === 'backup') && <ImportView library={library} view={manageTab === 'backup' ? 'backup' : 'import'} offline={offline} onLibrary={setLibrary} onError={error => { void handleError(error); }} notify={notify} />}
             {manageTab === 'topics' && <section className="panel"><div className="section-title"><h3>跨项目共用的知识点</h3><button className="primary" disabled={buttonsDisabled} onClick={() => openEditor('topics', blankRecord('topics'))}><Plus size={16} />新增知识点</button></div><div className="record-list">{library.topics.map(t => <div key={t.id}><span>{t.name}<small>{activeCards.filter(c => c.topic_ids.includes(t.id)).length} 个相关问题</small></span><div className="button-row"><button className="text-button" onClick={() => { setTopic(t.id); setSearch(''); navigate('project', undefined); }}>查看问题</button><button className="icon-button" disabled={buttonsDisabled} aria-label={`编辑知识点 ${t.name}`} onClick={() => openEditor('topics', t)}><Edit3 size={16} /></button></div></div>)}</div>{!library.topics.length && <p className="muted">知识点会连接不同项目中的相关问题。</p>}</section>}
-            {manageTab === 'offline' && <section className="panel"><div className="section-title"><h3>下载到这台设备</h3><WifiOff size={20} /></div><p className="muted">下载项目后，可以断网阅读、翻卡和查看该项目图谱。每台设备的离线内容单独保存。</p><div className="record-list">{library.projects.map(p => { const saved = downloads.find(d => d.id === p.id && d.owner === owner); return <div key={p.id}><span>{p.name}<small>{saved ? `已下载 ${saved.snapshot.cards.length} 张 · ${dateLabel(saved.downloaded_at)}` : '尚未下载'}</small></span><div className="button-row"><button className="secondary" disabled={buttonsDisabled} onClick={() => void downloadProject(p.id)}><ArrowDownToLine size={15} />{saved ? '更新' : '下载'}</button>{saved && <button className="text-button" onClick={() => { void removeDownload(p.id).then(async () => { await refreshDownloads(); notify('该项目的本机离线内容已移除'); }).catch(handleError); }}>移除</button>}</div></div>; })}</div><p className="microcopy">退出登录会清除本机已下载的题库。</p></section>}
+            {manageTab === 'offline' && <section className="panel"><div className="section-title"><h3>下载到这台设备</h3><WifiOff size={20} /></div><p className="muted">下载项目后，可以断网阅读、翻卡和查看该项目图谱。每台设备的离线内容单独保存。</p><div className="record-list">{library.projects.map(p => { const saved = downloads.find(d => d.id === p.id && d.owner === owner); return <div key={p.id}><span>{p.name}<small>{saved ? `已下载 ${saved.snapshot.cards.length} 张 · ${dateLabel(saved.downloaded_at)}` : '尚未下载'}</small></span><div className="button-row"><button className="secondary" disabled={buttonsDisabled} onClick={() => void downloadProject(p.id)}><ArrowDownToLine size={15} />{saved ? '更新' : '下载'}</button>{saved && <button className="text-button" disabled={operationBusy} onClick={() => requestDeletion('download', p.id, p.name)}>移除</button>}</div></div>; })}</div><p className="microcopy">退出登录会清除本机已下载的题库。</p></section>}
             {manageTab === 'help' && <section className="panel help-panel"><h3>iPhone 上随时翻一张</h3><ol><li>在 Safari 打开题库网址，使用邮箱账号和密码登录。</li><li>点击分享，选择“添加到主屏幕”，之后从桌面图标打开。</li><li>进入项目，点击“下载项目”；看到下载成功后即可离线复习。</li></ol><h3>修改与来源</h3><p>点开卡片后可编辑复习提纲和完整答案。面试后使用“记录被问来源”，保存公司、日期、岗位和当时的问法。完整答案默认收起，点击后可展开。需要移除题目时，点击卡片中的“删除知识卡”，再在弹窗中确认。</p><h3>让 AI 帮你整理</h3><p>让 AI 按 JSON v1 格式整理问答，保留问题 ID、原始问法和依据。可以上传文件，也可以通过机器接口提交草稿。到“导入问题”查看变化并确认。</p><p className="muted">AI 接口：<code>/api/v1/agent/library</code>（读取）、<code>/api/v1/agent/schema</code>（格式）、<code>/api/v1/agent/imports/preview</code>（提交草稿）。服务凭证在 Cloudflare Access 中管理。</p><h3>备份与设置</h3><p>“备份与恢复”单独提供备份下载和恢复预览。点击左下角退出按钮左边的齿轮，可打开账户与密码设置；管理员还可管理用户。</p><h3>你的登录邮箱</h3><p>{owner}</p></section>}
           </>}
         </>}
       </main>
     </div>
+    {library && pendingDeletion && <ConfirmationDialog title={deletionTitle} name={pendingDeletion.kind === 'card' || pendingDeletion.kind === 'relation' ? <InlineMarkdown text={pendingDeletion.name} questionTitle /> : pendingDeletion.name} description={deletionDescription} busy={operationBusy} error={deleteError} confirmLabel={pendingDeletion.kind === 'download' || pendingDeletion.kind === 'relation' ? '确认移除' : '确认删除'} onCancel={cancelDeletion} onConfirm={() => void confirmDeletion()} />}
+    {contextMenu && menuItems.length > 0 && <ContextMenu key={contextMenu.kind + contextMenu.id + contextMenu.x + contextMenu.y} label={plain(menuCard?.title ?? menuProject?.name ?? '')} x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={closeContextMenu} />}
     {settingsOpen && account && <SettingsWindow account={account} offline={offline} notify={notify} onClose={() => setSettingsOpen(false)} />}
     {toast && <div className="toast" role="status"><span>{toast}</span><button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
-    {library && detail && !editor && !sourceId && <Modal wide={deleteCardId !== detail.id} role={deleteCardId === detail.id ? 'alertdialog' : 'dialog'} closeDisabled={operationBusy && deleteCardId === detail.id} title={deleteCardId === detail.id ? '删除知识卡' : <InlineMarkdown text={detail.title} questionTitle />} onClose={() => { if (operationBusy) return; if (deleteCardId === detail.id) cancelCardDeletion(); else setDetailId(undefined); }}>{deleteCardId === detail.id ? <CardDeleteConfirmation title={detail.title} busy={operationBusy} error={deleteError} onCancel={cancelCardDeletion} onConfirm={() => void deleteKnowledgeCard(detail)} /> : <><div className="detail-meta"><span className="pill">{library.projects.find(p => p.id === detail.project_id)?.name}</span><span className={'status ' + detail.mastery}>{detail.mastery === 'mastered' ? '已掌握' : '待复习'}</span>{detail.important && <span className="priority-badge">重点</span>}</div><h3 className="question-text"><InlineMarkdown text={detail.question} /></h3><div className="detail-actions"><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('cards', detail)}><Edit3 size={15} />编辑答案</button><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('appearance', detail)}><Plus size={15} />记录被问来源</button><button className={'secondary ' + (detail.important ? 'priority-active' : '')} aria-pressed={detail.important} disabled={buttonsDisabled} onClick={() => void updateCard(detail, { important: !detail.important })}><Flag size={15} />{detail.important ? '取消重点' : '设为重点'}</button><button ref={deleteButton} type="button" className="secondary card-delete-button" disabled={buttonsDisabled} onClick={() => { setDeleteError(''); setDeleteCardId(detail.id); }}><Trash2 size={15} />删除知识卡</button></div><div className="detail-section"><h3>复习提纲</h3><Markdown text={detail.summary_md} /></div><CardFullAnswer key={detail.id} text={detail.answer_md} />
-      <div className="detail-section"><div className="section-title"><h3>沿着追问复习</h3><button className="text-button" disabled={buttonsDisabled} onClick={() => openEditor('link', detail)}><Link2 size={15} />关联问题</button></div>{library.relations.filter(r => r.from_card_id === detail.id || r.to_card_id === detail.id).map(r => { const outgoing = r.from_card_id === detail.id, other = library.cards.find(c => c.id === (outgoing ? r.to_card_id : r.from_card_id)); return other ? <div className="related-row" key={r.id}><button onClick={() => setDetailId(other.id)}><GitBranch size={16} /><span><InlineMarkdown text={other.title} questionTitle /><small>{r.kind === 'related' ? '相关问题' : outgoing ? '继续追问' : '上游问题'}</small></span><ArrowRight size={16} /></button><button className="icon-button" disabled={buttonsDisabled} aria-label={`移除与 ${other.title} 的关系`} onClick={() => void action(async () => { const next = await api<Library>(`/relations/${r.id}`, { method: 'DELETE', body: JSON.stringify({ expected_revision: library.revision }) }); setLibrary(next); notify('关系已移除'); })}><X size={15} /></button></div> : null; })}{!library.relations.some(r => r.from_card_id === detail.id || r.to_card_id === detail.id) && <p className="muted">还没有关联问题，可以补充一条追问或相关关系。</p>}</div>
+    {library && detail && !editor && !sourceId && !pendingDeletion && <Modal wide title={<InlineMarkdown text={detail.title} questionTitle />} onClose={() => { if (!operationBusy) setDetailId(undefined); }}><div className="detail-meta"><span className="pill">{library.projects.find(p => p.id === detail.project_id)?.name}</span><span className={'status ' + detail.mastery}>{detail.mastery === 'mastered' ? '已掌握' : '待复习'}</span>{detail.important && <span className="priority-badge">重点</span>}</div><h3 className="question-text"><InlineMarkdown text={detail.question} /></h3><div className="detail-actions"><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('cards', detail)}><Edit3 size={15} />编辑答案</button><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('appearance', detail)}><Plus size={15} />记录被问来源</button><button className={'secondary ' + (detail.important ? 'priority-active' : '')} aria-pressed={detail.important} disabled={buttonsDisabled} onClick={() => void updateCard(detail, { important: !detail.important })}><Flag size={15} />{detail.important ? '取消重点' : '设为重点'}</button><button ref={deleteButton} type="button" className="secondary card-delete-button" disabled={buttonsDisabled} onClick={() => requestDeletion('card', detail.id, detail.title)}><Trash2 size={15} />删除知识卡</button></div><div className="detail-section"><h3>复习提纲</h3><Markdown text={detail.summary_md} /></div><CardFullAnswer key={detail.id} text={detail.answer_md} />
+      <div className="detail-section"><div className="section-title"><h3>沿着追问复习</h3><button className="text-button" disabled={buttonsDisabled} onClick={() => openEditor('link', detail)}><Link2 size={15} />关联问题</button></div>{library.relations.filter(r => r.from_card_id === detail.id || r.to_card_id === detail.id).map(r => { const outgoing = r.from_card_id === detail.id, other = library.cards.find(c => c.id === (outgoing ? r.to_card_id : r.from_card_id)); return other ? <div className="related-row" key={r.id}><button onClick={() => setDetailId(other.id)}><GitBranch size={16} /><span><InlineMarkdown text={other.title} questionTitle /><small>{r.kind === 'related' ? '相关问题' : outgoing ? '继续追问' : '上游问题'}</small></span><ArrowRight size={16} /></button><button className="icon-button" disabled={buttonsDisabled} aria-label={`移除与 ${other.title} 的关系`} onClick={() => requestDeletion('relation', r.id, `${detail.title} ↔ ${other.title}`)}><X size={15} /></button></div> : null; })}{!library.relations.some(r => r.from_card_id === detail.id || r.to_card_id === detail.id) && <p className="muted">还没有关联问题，可以补充一条追问或相关关系。</p>}</div>
       <div className="detail-section"><h3>在哪里被问到</h3>{library.occurrences.filter(o => o.card_id === detail.id).map(o => { const s = library.sources.find(v => v.id === o.source_id)!; return <details className="occurrence" key={o.id}><summary><span>{s.name}<small>{sourceKinds[s.kind]} · {s.date || '日期未记录'}{s.company ? ` · ${s.company}` : ''}{s.round ? ` · ${s.round}` : ''}</small></span><ChevronRight size={16} /></summary><div><p><strong>原始问法：</strong><InlineMarkdown text={o.asked_question} /></p>{o.notes && <p className="muted">{o.notes}</p>}{o.original_answer_md && <><h4>当时的回答原文</h4><Markdown text={o.original_answer_md} /></>}<button className="text-button" onClick={() => setSourceId(s.id)}>查看完整来源记录 →</button></div></details>; })}</div>
-    </>}</Modal>}
+    </Modal>}
     {library && editor && formProps && <Modal wide={editor.kind === 'cards' || editor.kind === 'appearance'} title={editor.kind === 'cards' ? '编辑知识卡' : editor.kind === 'projects' ? '项目说明' : editor.kind === 'topics' ? '维护知识点' : editor.kind === 'appearance' ? '记录被问来源' : editor.kind === 'link' ? '关联问题' : '维护面试来源'} onClose={() => { discard(); }}><>{discardAction && <div className="discard-notice" role="alertdialog" aria-label="还有未保存的修改"><strong>还有未保存的修改</strong><p>继续编辑可以保留当前内容，放弃后会回到已保存的答案。</p><div className="button-row"><button className="secondary" onClick={() => setDiscardAction(null)}>继续编辑</button><button className="primary" onClick={() => { const next = discardAction; dirtyRef.current = false; setDirty(false); setEditor(null); setDiscardAction(null); next(); }}>放弃未保存的修改</button></div></div>}{editor.kind === 'cards' ? <CardForm {...formProps} initial={editor.value as Card} /> : editor.kind === 'appearance' ? <OccurrenceForm {...formProps} card={editor.value as Card} /> : editor.kind === 'link' ? <RelationForm {...formProps} card={editor.value as Card} /> : <RecordForm {...formProps} kind={editor.kind as 'projects' | 'topics' | 'sources'} initial={editor.value} />}</></Modal>}
     {library && source && !editor && <Modal wide title={source.name} onClose={() => setSourceId(undefined)}><div className="detail-meta"><span className="pill">{sourceKinds[source.kind]}</span><span>{source.date}</span><span className="muted">{[source.company, source.job, source.round].filter(Boolean).join(' · ')}</span></div>{source.notes && <p>{source.notes}</p>}{source.source_path && <div className="baseline"><code>{source.source_path}</code><button className="text-button" onClick={() => void copy(source.source_path)}><Copy size={13} />复制文件位置</button></div>}<div className="detail-section"><h3>此来源的问题</h3>{library.occurrences.filter(o => o.source_id === source.id).map(o => <button className="source-question" key={o.id} onClick={() => { setSourceId(undefined); setDetailId(o.card_id); }}><InlineMarkdown text={library.cards.find(c => c.id === o.card_id)?.title ?? ''} questionTitle /><ArrowRight size={15} /></button>)}</div>{source.original_markdown && <details className="answer-details"><summary>展开原始文档全文</summary><Markdown text={source.original_markdown} /></details>}</Modal>}
   </div>;

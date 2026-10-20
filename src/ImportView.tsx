@@ -7,6 +7,7 @@ import { ApiError, api, downloadFile } from './api';
 import { ImportPreview } from './ImportPreview';
 import { ManualImportForm } from './ManualImportForm';
 import { applyImportBatch, refreshImportBatch } from './import-actions';
+import { ConfirmationDialog } from './ConfirmationDialog';
 
 function changeLabel(changes: Change[]) { const summary = summarizeChanges(changes); return summary.questions ? `${summary.questions} 道题` : '题库资料更新'; }
 function batchLabel(batch: ImportBatch) {
@@ -23,6 +24,7 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
   const [batches, setBatches] = useState<ImportBatch[]>([]), [selected, setSelected] = useState<ImportBatch | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [fileName, setFileName] = useState('');
   const [manualBatchId, setManualBatchId] = useState(''), [manualResetKey, setManualResetKey] = useState(0);
+  const [confirmationBatch, setConfirmationBatch] = useState<ImportBatch | null>(null);
   const manualEditVersion = useRef(0), manualPreviewVersion = useRef<number | null>(null);
   const file = useRef<HTMLInputElement>(null), restoreFile = useRef<HTMLInputElement>(null), selectedRecord = useRef<HTMLDivElement>(null);
   const activeView = useRef(view); activeView.current = view;
@@ -42,7 +44,7 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
     } catch (e) { onError(e); }
   }
   useEffect(() => { void refresh(); }, [offline]);
-  useEffect(() => { setSelected(null); setError(''); setNotice(''); setFileName(''); }, [view]);
+  useEffect(() => { setSelected(null); setError(''); setNotice(''); setFileName(''); setConfirmationBatch(null); }, [view]);
   useEffect(() => { if (selectedHere) selectedRecord.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selectedHere?.id]);
   async function run(task: () => Promise<void>) {
     const startedIn = activeView.current;
@@ -81,6 +83,26 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
   function template() {
     downloadFile('import-template-v1.json', JSON.stringify({ schema_version: 1, mode: 'merge', projects: [{ id: 'example-project', name: '示例题库' }], cards: [{ id: 'example-question-1', project_id: 'example-project', title: '填写卡片标题', question: '填写面试问题', summary_md: '填写面试口述版', answer_md: '填写详细讲解', important: false }], topics: [], sources: [], occurrences: [], relations: [] }, null, 2), 'application/json');
   }
+  async function applyBatch(batch: ImportBatch) {
+    if (busy || offline) return;
+    await run(async () => {
+      const result = await applyImportBatch(batch);
+      setConfirmationBatch(null); showPreview(result.batch);
+      if (result.kind === 'refreshed') {
+        const message = '题库刚有更新，已重新生成预览，本次尚未导入。请核对后再次点击确认。';
+        if ((activeView.current === 'backup') === (result.batch.mode === 'restore')) setNotice(message);
+        notify(message);
+      } else {
+        onLibrary(result.library); notify(result.batch.mode === 'restore' ? '备份已恢复，题库已更新' : '导入已应用，题库已更新');
+        if (result.batch.id === manualBatchId) {
+          if (manualPreviewVersion.current === manualEditVersion.current) setManualResetKey(key => key + 1);
+          else notify('已导入此前预览中的内容；你之后填写的修改已保留，可重新预览。');
+          setManualBatchId(''); manualPreviewVersion.current = null;
+        }
+      }
+      await refresh();
+    });
+  }
   const listed = selectedHere ? batches.some(batch => batch.id === selectedHere.id) ? batches.map(batch => batch.id === selectedHere.id ? selectedHere : batch) : [selectedHere, ...batches] : batches;
   const visibleBatches = listed.filter(batch => batch.mode === pageMode);
   const preview = selectedHere && <section id={`import-preview-${selectedHere.id}`} aria-labelledby={`import-record-${selectedHere.id}`} className="import-preview batch-preview">
@@ -91,23 +113,10 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
     {error && <div className="notice error import-action-message" role="alert">{error}</div>}
     <div className="split-actions"><span className="microcopy">核对后确认，确认前不会修改正式题库。</span><div className="button-row">
       <button className="secondary" disabled={busy || offline || selectedHere.status !== 'pending'} onClick={() => void run(async () => { showPreview(await refreshImportBatch(selectedHere)); await refresh(); })}><RefreshCw size={15} />重新预览</button>
-      <button className="primary" disabled={busy || offline || selectedHere.status !== 'pending' || !selectedHere.preview.length} onClick={() => void run(async () => {
-        const result = await applyImportBatch(selectedHere);
-        showPreview(result.batch);
-        if (result.kind === 'refreshed') {
-          const message = '题库刚有更新，已重新生成预览，本次尚未导入。请核对后再次点击确认。';
-          if ((activeView.current === 'backup') === (result.batch.mode === 'restore')) setNotice(message);
-          notify(message);
-        } else {
-          onLibrary(result.library); notify(result.batch.mode === 'restore' ? '备份已恢复，题库已更新' : '导入已应用，题库已更新');
-          if (result.batch.id === manualBatchId) {
-            if (manualPreviewVersion.current === manualEditVersion.current) setManualResetKey(key => key + 1);
-            else notify('已导入此前预览中的内容；你之后填写的修改已保留，可重新预览。');
-            setManualBatchId(''); manualPreviewVersion.current = null;
-          }
-        }
-        await refresh();
-      })}><Check size={16} />{busy ? '处理中…' : selectedHere.mode === 'restore' ? '确认恢复备份' : '确认导入'}</button>
+      <button className="primary" disabled={busy || offline || selectedHere.status !== 'pending' || !selectedHere.preview.length} onClick={() => {
+        if (selectedHere.mode === 'restore' || selectedHere.preview.some(change => change.operation === 'remove')) { setError(''); setConfirmationBatch(selectedHere); }
+        else void applyBatch(selectedHere);
+      }}><Check size={16} />{busy ? '处理中…' : selectedHere.mode === 'restore' ? '确认恢复备份' : '确认导入'}</button>
     </div></div>
   </section>;
   return <div className="import-view">
@@ -139,5 +148,6 @@ export function ImportView({ library, view, offline, onLibrary, onError, notify 
         {selectedHere?.id === batch.id && preview}
       </div>)}</div>}
     </section>
+    {confirmationBatch && <ConfirmationDialog title="确认恢复整个题库？" description={`将用这份备份替换当前账号的整个题库，其中 ${confirmationBatch.preview.filter(change => change.kind === 'cards' && change.operation === 'remove').length} 道题会被移除。当前资料的修改也可能被覆盖，请核对预览并保留需要的备份。`} busy={busy} confirmDisabled={offline} error={offline ? '当前离线，请联网后再次确认。' : error} confirmLabel="确认恢复" onCancel={() => setConfirmationBatch(null)} onConfirm={() => void applyBatch(confirmationBatch)} />}
   </div>;
 }

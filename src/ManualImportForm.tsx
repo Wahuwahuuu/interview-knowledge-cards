@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Eye, Plus, Trash2 } from 'lucide-react';
 import type { ImportEnvelope, Library } from '../shared/model';
 import { buildManualImportEnvelope, createManualImportDraft, createManualImportQuestion, ManualImportError, type ManualImportQuestion } from '../shared/manual-import';
+import { ConfirmationDialog } from './ConfirmationDialog';
 
 type Props = {
   library: Library;
@@ -15,13 +16,14 @@ type Props = {
 export function ManualImportForm({ library, offline, busy, resetKey, onPreview, onEdit }: Props) {
   const [draft, setDraft] = useState(() => createManualImportDraft(library.projects[0]?.id));
   const [error, setError] = useState(''), [errorField, setErrorField] = useState<string>(), [submitting, setSubmitting] = useState(false);
+  const [removeQuestionId, setRemoveQuestionId] = useState<string>();
   const lastResetKey = useRef(resetKey), form = useRef<HTMLFormElement>(null);
   const disabled = busy || submitting || offline;
   useEffect(() => {
     if (lastResetKey.current === resetKey) return;
     lastResetKey.current = resetKey;
     setDraft(createManualImportDraft(library.projects[0]?.id));
-    setError(''); setErrorField(undefined);
+    setError(''); setErrorField(undefined); setRemoveQuestionId(undefined);
   }, [resetKey, library.projects]);
   useEffect(() => {
     if (draft.destination === 'new' && library.projects.some(project => project.id === draft.newProjectId)) {
@@ -50,7 +52,8 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
     } finally { setSubmitting(false); }
   }
 
-  return <form ref={form} className="manual-import-form" onSubmit={event => void submit(event)}>
+  const removingQuestion = draft.questions.find(question => question.id === removeQuestionId);
+  return <><form ref={form} className="manual-import-form" onSubmit={event => void submit(event)}>
     <div className="manual-import-heading"><h3>填写问答</h3><p className="muted">选择题库，填写题目和答案，再预览确认导入。答案可以留空，之后补充。</p></div>
     <fieldset className="manual-import-fields" disabled={disabled}>
       <div className="manual-import-destination">
@@ -61,7 +64,7 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
         {draft.destination === 'new' && <label className="field"><span>新题库名称 <span className="manual-import-required">（必填）</span></span><input name="new-project-name" required maxLength={100} value={draft.newProjectName} aria-invalid={errorField === 'new-project-name' || undefined} onChange={event => { onEdit?.(); setDraft(current => ({ ...current, newProjectName: event.target.value })); if (errorField === 'new-project-name') { setError(''); setErrorField(undefined); } }} placeholder="例如：MySQL 八股" /></label>}
       </div>
       <div className="manual-import-questions">{draft.questions.map((question, index) => <section className="manual-import-question" key={question.id} aria-labelledby={`manual-question-${question.id}`}>
-        <div className="manual-import-question-heading"><div className="manual-import-question-labels"><h4 id={`manual-question-${question.id}`}>第 {index + 1} 题</h4><label className="priority-checkbox manual-import-priority"><input type="checkbox" checked={!!question.important} onChange={event => editQuestion(question.id, 'important', event.target.checked)} />重点</label></div><button type="button" className="text-button" disabled={draft.questions.length === 1} aria-label={`移除第 ${index + 1} 题`} onClick={() => { onEdit?.(); setDraft(current => ({ ...current, questions: current.questions.filter(row => row.id !== question.id) })); setError(''); setErrorField(undefined); }}><Trash2 size={15} />移除</button></div>
+        <div className="manual-import-question-heading"><div className="manual-import-question-labels"><h4 id={`manual-question-${question.id}`}>第 {index + 1} 题</h4><label className="priority-checkbox manual-import-priority"><input type="checkbox" checked={!!question.important} onChange={event => editQuestion(question.id, 'important', event.target.checked)} />重点</label></div><button type="button" className="text-button" disabled={draft.questions.length === 1} aria-label={`移除第 ${index + 1} 题`} onClick={() => setRemoveQuestionId(question.id)}><Trash2 size={15} />移除</button></div>
         <label className="field manual-import-title"><span>标题 <span className="manual-import-required">（必填）</span></span><input name={`title-${question.id}`} required maxLength={150} value={question.title} aria-invalid={errorField === `title-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'title', event.target.value)} placeholder="例如：事务的四大特性" /></label>
         <label className="field manual-import-prompt"><span>问题 <span className="manual-import-required">（必填）</span></span><textarea name={`question-${question.id}`} required maxLength={400_000} rows={3} value={question.question} aria-invalid={errorField === `question-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'question', event.target.value)} placeholder="例如：MySQL 事务的 ACID 特性分别是什么？" /></label>
         <label className="field manual-import-summary"><span>复习提纲（面试口述版）</span><textarea name={`summary-${question.id}`} maxLength={400_000} rows={4} value={question.summary} aria-invalid={errorField === `summary-${question.id}` || undefined} onChange={event => editQuestion(question.id, 'summary', event.target.value)} placeholder="填写面试时准备如何回答，可稍后补充" /></label>
@@ -72,5 +75,10 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
     {error && <p className="form-error manual-import-error" role="alert">{error}</p>}
     {offline && <p className="microcopy">当前离线，联网后可填写并导入。</p>}
     <div className="manual-import-footer"><span className="microcopy">共 {draft.questions.length} 道题，预览后由你确认导入。</span><button className="primary" disabled={disabled || offline}><Eye size={16} />{submitting ? '正在生成预览…' : '预览导入'}</button></div>
-  </form>;
+  </form>{removingQuestion && <ConfirmationDialog title="移除这道待导入题目？" name={removingQuestion.title || `第 ${draft.questions.indexOf(removingQuestion) + 1} 题`} description="这道题当前填写的标题、问题和答案将从表单中移除，正式题库中的内容会保留。" busy={busy || submitting} confirmLabel="确认移除" onCancel={() => setRemoveQuestionId(undefined)} onConfirm={() => {
+    if (busy || submitting || draft.questions.length <= 1) return;
+    onEdit?.(); setDraft(current => ({ ...current, questions: current.questions.filter(question => question.id !== removeQuestionId) }));
+    setRemoveQuestionId(undefined); setError(''); setErrorField(undefined);
+    requestAnimationFrame(() => form.current?.querySelector<HTMLButtonElement>('.manual-import-add')?.focus());
+  }} />}</>;
 }

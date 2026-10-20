@@ -58,6 +58,10 @@ try {
   assert.ok(!editA.cards.some(card=>card.id===aCard.id));
   assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeDeleteB);
   assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial); report('删除仅作用于当前账号，伪造归属不会删除他人同 ID 卡片');
+  editA=(await ok('/api/v1/projects/'+aCard.project_id,{method:'DELETE',cookie:a.cookie,value:{expected_revision:editA.revision,user_id:b.value.user_id}})).value;
+  assert.equal(editA.projects.length,0); assert.equal(editA.cards.length,0); assert.equal(editA.revisions.length,0);
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeDeleteB);
+  assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial); report('删除自己的同 ID 项目及全部卡片，不影响其他账户或管理员题库');
   const agent=(await ok('/api/v1/agent/library',{agent:true})).value; assert.deepEqual(agent.cards,initial.cards);
   assert.equal((await req('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',agent:true,value:{expected_revision:1}})).status,403); report('机器凭证绑定原管理员题库，并仍禁止正式应用');
   assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:aEmail,password:'wrong-password'}})).status,401);

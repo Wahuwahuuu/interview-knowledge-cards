@@ -5,6 +5,7 @@ import { assertOrigin, assertOwner, authenticate, resolveIdentity, type Env, typ
 import { commitLibrary, readLibrary } from './store';
 import accountRoutes from './accounts';
 import { removeCard } from '../shared/card-actions';
+import { removeProject } from '../shared/project-actions';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -110,6 +111,7 @@ for (const kind of kinds) {
     expectedRevision(input, library);
     if (!library[kind].some(v => v.id === c.req.param('id'))) throw new AppError(404, '记录不存在');
     if (kind === 'cards') return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, removeCard(library, c.req.param('id'))));
+    if (kind === 'projects') return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, removeProject(library, c.req.param('id'))));
     if (kind === 'sources' || kind === 'occurrences') throw new AppError(422, '原始问答与来源记录保留供追溯');
     const target = structuredClone(library);
     (target[kind] as Entity[]) = (target[kind] as Entity[]).filter(v => v.id !== c.req.param('id'));

@@ -7,7 +7,8 @@ import { legacyPriorityTitle } from '../shared/card-priority';
 import { InlineMarkdown } from '../src/Markdown';
 import { CardCollection } from '../src/CardCollection';
 import { CardForm } from '../src/Editors';
-import { CardDeleteConfirmation, CardFullAnswer } from '../src/CardContent';
+import { CardFullAnswer } from '../src/CardContent';
+import { ConfirmationDialog } from '../src/ConfirmationDialog';
 import { mergeDownloads, type Download } from '../src/offline';
 
 const question = { id: 'q1', project_id: 'mysql', title: '02. ⭐ 如何使用 `EXPLAIN`？', question: '如何使用 `EXPLAIN` 分析 **执行计划**？', summary_md: '口述内容', answer_md: '详细答案', limitations_md: '旧边界资料', source_baseline: '旧基线', evidence: [{ label: '旧依据', path: 'private-source.ts' }] };
@@ -22,10 +23,10 @@ describe('题目展示与重点兼容', () => {
 
   it('删除确认显示具体题目，初始不执行删除，处理中禁止取消或再次提交', () => {
     let deletes = 0;
-    const html = renderToStaticMarkup(createElement(CardDeleteConfirmation, { title: question.title, busy: true, error: '删除失败，请重试', onCancel() {}, onConfirm() { deletes++; } }));
+    const html = renderToStaticMarkup(createElement(ConfirmationDialog, { title: '删除这张知识卡？', name: createElement(InlineMarkdown, { text: question.title }), description: '删除后无法直接撤销', busy: true, error: '删除失败，请重试', onCancel() {}, onConfirm() { deletes++; } }));
     expect(html).toContain('删除这张知识卡'); expect(html).toContain('<code>EXPLAIN</code>');
-    expect(html).toContain('正在删除'); expect(html).toContain('删除失败，请重试');
-    expect(html.match(/<button[^>]*disabled/g)).toHaveLength(2); expect(deletes).toBe(0);
+    expect(html).toContain('正在处理'); expect(html).toContain('删除失败，请重试'); expect(html).toContain('role="alertdialog"');
+    expect(html.match(/<button[^>]*disabled/g)).toHaveLength(3); expect(deletes).toBe(0);
   });
 
   it('只移除题首和题号后装饰星号，SQL星号和Markdown强调不受影响', () => {
@@ -34,6 +35,13 @@ describe('题目展示与重点兼容', () => {
       expect(legacyPriorityTitle(title).title).not.toMatch(/[⭐★☆]/u);
     }
     for (const title of ['SELECT * FROM t', '**事务**', '`COUNT(*)`', '字符串中的 ⭐ 字符']) expect(legacyPriorityTitle(title)).toEqual({ title, marked: false });
+  });
+
+  it('暂时不能确认时仍允许取消和关闭，并把影响说明关联到弹窗', () => {
+    const html = renderToStaticMarkup(createElement(ConfirmationDialog, { title: '确认删除', description: '当前无法提交', confirmDisabled: true, onCancel() {}, onConfirm() {} }));
+    expect(html.match(/<button[^>]*disabled/g)).toHaveLength(1);
+    expect(html).toContain('aria-describedby="delete-description"');
+    expect(html).toContain('id="delete-description"'); expect(html).toContain('>取消</button>');
   });
 
   it('旧题目自动获得重点属性，显式取消重点不会再次被旧格式覆盖', () => {

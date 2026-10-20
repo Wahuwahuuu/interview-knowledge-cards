@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { X, Plus, Save, Link2 } from 'lucide-react';
 import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { api, newId } from './api';
 
-export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean }) {
+export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false, initialFocusRef, descriptionId }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean; initialFocusRef?: RefObject<HTMLElement | null>; descriptionId?: string }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const old = document.body.style.overflow; document.body.style.overflow = 'hidden';
-    dialog.current?.focus();
+    (initialFocusRef?.current ?? dialog.current)?.focus();
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); close.current(); }
       if (event.key === 'Tab' && dialog.current) {
@@ -22,7 +22,7 @@ export function Modal({ title, children, onClose, wide = false, role = 'dialog',
     document.addEventListener('keydown', key);
     return () => { document.body.style.overflow = old; document.removeEventListener('keydown', key); previous?.focus(); };
   }, []);
-  return <div className="modal-backdrop"><div ref={dialog} tabIndex={-1} role={role} aria-modal="true" aria-labelledby="modal-title" className={'modal ' + (wide ? 'modal-wide' : '')}><div className="modal-header"><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭弹窗" disabled={closeDisabled} onClick={onClose}><X size={21} /></button></div><div className="modal-content">{children}</div></div></div>;
+  return <div className="modal-backdrop"><div ref={dialog} tabIndex={-1} role={role} aria-modal="true" aria-labelledby="modal-title" aria-describedby={descriptionId} className={'modal ' + (wide ? 'modal-wide' : '')}><div className="modal-header"><h2 id="modal-title">{title}</h2><button className="icon-button" aria-label="关闭弹窗" disabled={closeDisabled} onClick={onClose}><X size={21} /></button></div><div className="modal-content">{children}</div></div></div>;
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) { return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>; }
 type FormProps = { library: Library; expectedRevision: number; onSaved: (library: Library) => void; onDirty: (dirty: boolean) => void; onError: (error: unknown) => void };
