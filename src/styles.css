@@ -57,6 +57,16 @@
 .practice-progress>.text-button{padding:0;font-weight:400;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .practice-card-label{justify-content:flex-end}
 .practice-empty{padding:12px 15px;background:#f4f6ef;border-radius:8px}
+.batch-entry{border-bottom:1px solid var(--border)}
+.batch-entry:last-child{border-bottom:0}
+.batch-entry>.batch-row{width:100%;border:0;padding:16px 12px;border-radius:8px;min-width:0}
+.batch-entry>.batch-row>span:first-child{min-width:0;overflow-wrap:anywhere}
+.batch-entry>.batch-row>.button-row{flex-shrink:0}
+.batch-entry.expanded{margin:8px 0;border:1px solid var(--border);border-radius:10px;overflow:hidden;scroll-margin-top:90px}
+.batch-entry.expanded>.batch-row{border-radius:0}
+.batch-preview{padding:20px;border-top:1px solid var(--border);scroll-margin-top:90px}
+.batch-preview>.section-title{margin-bottom:18px}
+@media(max-width:760px){.batch-preview{padding:16px 10px}.batch-entry>.batch-row{padding:14px 10px;gap:10px}.batch-entry>.batch-row>span:first-child{font-size:12px}}
 @media(max-width:760px){
   .breadcrumb{min-width:0;flex:1;max-width:none;overflow:hidden}
   .breadcrumb>svg{flex-shrink:0}
