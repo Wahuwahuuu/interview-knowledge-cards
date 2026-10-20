@@ -138,7 +138,7 @@ app.post('/api/v1/imports/:id/apply', async c => {
   assertOwner(c.get('identity'));
   const input = await body(c.req.raw), batch = await getBatch(c.env.DB, c.get('identity').user_id, c.req.param('id'));
   if (batch.status === 'applied') return c.json({ batch: batchView(batch), library: await readLibrary(c.env.DB, c.get('identity').user_id), already_applied: true });
-  if (batch.status !== 'pending') throw new AppError(409, '这个导入批次已经取消');
+  if (batch.status !== 'pending') throw new AppError(409, '这个导入批次已经取消', 'IMPORT_CANCELLED');
   const library = await readLibrary(c.env.DB, c.get('identity').user_id);
   expectedRevision(input, library);
   if (batch.base_revision !== library.revision) throw new AppError(409, '预览后题库发生了变化，请重新预览', 'REVISION_CONFLICT');

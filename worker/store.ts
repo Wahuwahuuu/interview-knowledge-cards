@@ -49,7 +49,8 @@ function upsert(db: D1Database, userId: string, kind: Kind, value: Entity): D1Pr
 export async function commitLibrary(db: D1Database, userId: string, base: Library, target: Library, options: { restore?: boolean; batchId?: string } = {}) {
   validateLibrary(target);
   const guard = crypto.randomUUID();
-  const statements: D1PreparedStatement[] = [db.prepare('INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT revision FROM user_library_meta WHERE user_id=?)=? THEN 1 ELSE 0 END)').bind(userId, guard, userId, base.revision)];
+  const pendingBatch = options.batchId ? " AND EXISTS (SELECT 1 FROM user_import_batches WHERE user_id=? AND id=? AND status='pending' AND base_revision=?)" : '';
+  const statements: D1PreparedStatement[] = [db.prepare(`INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT revision FROM user_library_meta WHERE user_id=?)=?${pendingBatch} THEN 1 ELSE 0 END)`).bind(userId, guard, userId, base.revision, ...(options.batchId ? [userId, options.batchId, base.revision] : []))];
   if (options.restore) {
     for (const table of ['relations', 'occurrences', 'card_topics', 'card_revisions', 'cards', 'sources', 'topics', 'projects']) statements.push(db.prepare(`DELETE FROM user_${table} WHERE user_id=?`).bind(userId));
   } else {
@@ -85,7 +86,13 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
   try { await db.batch(statements); }
   catch (error) {
     const message = String(error);
-    if (message.includes('ok=1') || message.includes('mutation_guard')) throw new AppError(409, '题库已在其他操作中更新，请刷新后重新预览或保存', 'REVISION_CONFLICT');
+    if (message.includes('ok=1') || message.includes('mutation_guard')) {
+      if (options.batchId) {
+        const batch = await db.prepare('SELECT status FROM user_import_batches WHERE user_id=? AND id=?').bind(userId, options.batchId).first<{ status: string }>();
+        if (batch?.status === 'cancelled') throw new AppError(409, '这个导入批次已经取消', 'IMPORT_CANCELLED');
+      }
+      throw new AppError(409, '题库已在其他操作中更新，请刷新后重新预览或保存', 'REVISION_CONFLICT');
+    }
     throw error;
   }
   target.revision = base.revision + 1;

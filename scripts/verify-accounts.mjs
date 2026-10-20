@@ -47,6 +47,17 @@ try {
   assert.equal((await ok('/api/v1/library',{cookie:b.cookie})).value.cards.length,0);
   const stateB = (await ok('/api/v1/imports/'+previewB.id+'/apply',{method:'POST',cookie:b.cookie,value:{expected_revision:0}})).value.library;
   assert.notEqual(stateA.cards[0].answer_md,stateB.cards[0].answer_md); assert.equal((await ok('/api/v1/library',{localAdmin:true})).value.revision,initial.revision); report('同一批次和同一卡片 ID 在不同账户中独立保存');
+  const cancelEnvelope = { ...seed, batch_id: 'cancel-isolation-' + stamp };
+  const cancelBeforeA = (await ok('/api/v1/library',{cookie:a.cookie})).value, cancelBeforeB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
+  const cancelA = (await ok('/api/v1/imports/preview',{method:'POST',cookie:a.cookie,value:cancelEnvelope})).value;
+  const cancelB = (await ok('/api/v1/imports/preview',{method:'POST',cookie:b.cookie,value:cancelEnvelope})).value;
+  assert.equal((await ok('/api/v1/imports/'+cancelA.id+'/cancel',{method:'POST',cookie:a.cookie,value:{user_id:b.value.user_id}})).value.status,'cancelled');
+  assert.equal((await ok('/api/v1/imports/'+cancelB.id,{cookie:b.cookie})).value.status,'pending');
+  assert.equal((await req('/api/v1/imports/'+cancelA.id+'/cancel',{method:'POST',agent:true,value:{}})).status,403);
+  assert.equal((await req('/api/v1/imports/'+cancelA.id+'/cancel',{method:'POST',value:{}})).status,401);
+  assert.deepEqual((await ok('/api/v1/library',{cookie:a.cookie})).value,cancelBeforeA);
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,cancelBeforeB);
+  assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial); report('同 ID 导入草稿取消仅作用于当前账号，其他账号、管理员和正式题库保持原样');
   const aCard=stateA.cards[0], bCard=stateB.cards.find(c=>c.id===aCard.id);
   let editA=(await ok('/api/v1/cards/'+aCard.id,{method:'PUT',cookie:a.cookie,value:{expected_revision:stateA.revision,value:{...aCard,answer_md:'甲修改的新答案'}}})).value;
   assert.equal((await ok('/api/v1/export',{cookie:b.cookie})).value.cards.find(c=>c.id===aCard.id).answer_md,bCard.answer_md);

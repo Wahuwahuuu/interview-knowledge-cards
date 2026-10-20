@@ -2,8 +2,8 @@ import { useRef, type ReactNode } from 'react';
 import { Trash2 } from 'lucide-react';
 import { Modal } from './Editors';
 
-export function ConfirmationDialog({ title, name, description, busy = false, confirmDisabled = false, error = '', confirmLabel = '确认删除', onCancel, onConfirm }: {
-  title: string; name?: ReactNode; description: string; busy?: boolean; confirmDisabled?: boolean; error?: string; confirmLabel?: string;
+export function ConfirmationDialog({ title, name, description, busy = false, confirmDisabled = false, error = '', confirmLabel = '确认删除', cancelLabel = '取消', confirmIcon = <Trash2 size={15} />, onCancel, onConfirm }: {
+  title: string; name?: ReactNode; description: string; busy?: boolean; confirmDisabled?: boolean; error?: string; confirmLabel?: string; cancelLabel?: string; confirmIcon?: ReactNode;
   onCancel: () => void; onConfirm: () => void;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
@@ -13,8 +13,8 @@ export function ConfirmationDialog({ title, name, description, busy = false, con
       <p id="delete-description">{description}</p>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="button-row">
-        <button ref={cancel} type="button" className="secondary" disabled={busy} onClick={onCancel}>取消</button>
-        <button type="button" className="primary danger-button" disabled={busy || confirmDisabled} onClick={onConfirm}><Trash2 size={15} />{busy ? '正在处理…' : confirmLabel}</button>
+        <button ref={cancel} type="button" className="secondary" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
+        <button type="button" className="primary danger-button" disabled={busy || confirmDisabled} onClick={onConfirm}>{confirmIcon}{busy ? '正在处理…' : confirmLabel}</button>
       </div>
     </section>
   </Modal>;

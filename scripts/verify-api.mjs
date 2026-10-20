@@ -112,6 +112,33 @@ try {
   const stateWinner = stateRace.find(value => value.status === 200).value; state = await library();
   assert.equal(state.revision, stateWinner.revision); assert.equal(state.cards.find(value => value.id === card.id).important, stateWinner.card.important);
   assert.deepEqual(state.revisions, beforeState.revisions); report('并发状态修改只有一项原子成功，另一个冲突不覆盖或留下部分写入');
+  const beforeCancel = await library(), cancelInput = { schema_version: 1, batch_id: 'cancel-test-' + stamp, cards: [{ ...beforeCancel.cards[0], summary_md: '取消后不应出现的提纲' }] };
+  const cancelDraft = await ok('/imports/preview', 'POST', cancelInput);
+  assert.equal((await request('/imports/' + cancelDraft.id + '/cancel', 'POST', {}, true)).status, 403);
+  assert.equal((await ok('/imports/' + cancelDraft.id + '/cancel', 'POST', {})).status, 'cancelled');
+  assert.equal((await ok('/imports/' + cancelDraft.id)).status, 'cancelled');
+  assert.equal((await ok('/imports/' + cancelDraft.id + '/cancel', 'POST', {})).status, 'cancelled');
+  assert.deepEqual(await library(), beforeCancel); report('取消草稿持久保存并保留记录，重复取消幂等，正式题库及版本保持原样');
+  assert.equal((await request('/imports/' + cancelDraft.id + '/apply', 'POST', { expected_revision: cancelDraft.base_revision })).status, 409);
+  assert.equal((await request('/imports/' + cancelDraft.id + '/repreview', 'POST', {})).status, 409);
+  assert.equal((await request('/imports/preview', 'POST', cancelInput)).status, 409);
+  assert.equal((await request('/imports/missing-batch/cancel', 'POST', {})).status, 404);
+  assert.deepEqual(await library(), beforeCancel); report('已取消草稿无法重新预览、复用或确认，机器和不存在的取消请求被拒绝');
+  const restoreDraft = await ok('/imports/preview', 'POST', { schema_version: 1, mode: 'restore', batch_id: 'cancel-restore-' + stamp });
+  assert.equal((await ok('/imports/' + restoreDraft.id + '/cancel', 'POST', {})).status, 'cancelled');
+  assert.deepEqual(await library(), beforeCancel); report('恢复草稿也可取消，原题库、原文及历史不被移除');
+  for (let raceIndex = 0; raceIndex < 4; raceIndex++) {
+    const base = await library(), marker = '取消确认竞争-' + raceIndex;
+    const proposal = await ok('/imports/preview', 'POST', { schema_version: 1, batch_id: 'cancel-race-' + stamp + '-' + raceIndex, cards: [{ ...base.cards[0], summary_md: marker }] });
+    const [confirmation, cancellation] = await Promise.all([request('/imports/' + proposal.id + '/apply', 'POST', { expected_revision: proposal.base_revision }), request('/imports/' + proposal.id + '/cancel', 'POST', {})]);
+    assert.equal(cancellation.status, 200);
+    const latest = await ok('/imports/' + proposal.id), saved = await library();
+    if (latest.status === 'cancelled') { assert.equal(confirmation.status, 409); assert.deepEqual(saved, base); }
+    else { assert.equal(latest.status, 'applied'); assert.equal(confirmation.status, 200); assert.equal(cancellation.value.status, 'applied'); assert.equal(saved.revision, base.revision + 1); assert.equal(saved.cards.find(value => value.id === base.cards[0].id).summary_md, marker); }
+  }
+  state = await library(); report('取消与确认并发只有一个终态，取消成功的批次绝不写入题库');
+  const completed = await ok('/imports/' + staged.id + '/cancel', 'POST', {}); assert.equal(completed.status, 'applied'); assert.deepEqual(await library(), state);
+  report('已应用批次如实返回已应用，取消不会撤回已入库内容');
   const beforeDelete = await library(), beforeDeleteBackup = await ok('/export');
   assert.equal((await request('/cards/' + card.id, 'DELETE', { expected_revision: beforeDelete.revision - 1 })).status, 409);
   assert.equal((await request('/cards/' + card.id, 'DELETE', { expected_revision: beforeDelete.revision }, true)).status, 403);
