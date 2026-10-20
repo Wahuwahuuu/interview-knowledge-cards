@@ -36,6 +36,59 @@
 .breadcrumb button:not(.mobile-menu):hover{color:var(--green);text-decoration:underline;text-underline-offset:4px}
 .breadcrumb button[aria-current=page]{color:#526749;font-weight:600}
 .operation-status{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--green);white-space:nowrap}
+.account{gap:6px}
+.account>div>strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-window{min-width:0}
+.settings-tabs{display:flex;gap:24px;border-bottom:1px solid var(--border);margin-bottom:24px}
+.settings-tabs>button{display:inline-flex;align-items:center;gap:8px;padding:0 2px 15px;border-bottom:2px solid transparent;color:#62715a;font-size:14px;white-space:nowrap}
+.settings-tabs>button[aria-selected=true]{color:var(--green);border-color:var(--green);font-weight:600}
+.settings-tabs>button:hover{color:var(--green)}
+.settings-panel[hidden],.human-import-page[hidden]{display:none}
+.settings-panel>.panel{padding:0;border:0;background:transparent}
+.settings-panel>.panel .muted{color:#5e6f55}
+.settings-panel .account-settings>p{overflow-wrap:anywhere}
+.settings-window .field,.manual-import-form .field{color:#52634a}
+.settings-window input::placeholder,.manual-import-form input::placeholder,.manual-import-form textarea::placeholder{color:#66735e}
+.human-import-page{display:grid;gap:24px}
+.json-import-tools{display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap}
+.json-import-tools h3{margin-bottom:5px}
+.json-import-tools .muted,.backup-page .muted,.manual-import-form .muted{color:#5e6f55}
+.manual-import-form{padding:28px;background:var(--paper);border:1px solid var(--border);border-radius:12px}
+.manual-import-heading{margin-bottom:24px}
+.manual-import-heading>h3{font-size:18px;margin-bottom:7px}
+.manual-import-fields{border:0;padding:0;margin:0;min-width:0}
+.manual-import-destination{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
+.manual-import-destination>.field{margin:0}
+.manual-import-question{display:grid;grid-template-columns:1fr 1fr;gap:18px 22px;padding-top:22px;margin-bottom:26px;border-top:1px solid var(--border);min-width:0}
+.manual-import-question-heading{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.manual-import-question-heading>h4{font-size:15px}
+.manual-import-question>.field{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
+.manual-import-question>.field:nth-of-type(-n+2){grid-column:1/-1}
+.manual-import-question>.field:nth-of-type(n+3)>textarea{min-height:180px;flex:1}
+.manual-import-required{font-size:12px;color:#65725c;font-weight:400}
+.manual-import-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
+.manual-import-footer>.microcopy,.manual-import-form>.microcopy{color:#5e6f55}
+.manual-import-error{margin-top:20px}
+.json-import-tools>.button-row{flex-shrink:0}
+.backup-page{display:grid;gap:24px}
+.backup-restore>.notice{margin:18px 0}
+.import-file-name{overflow-wrap:anywhere}
+.help-api{margin:16px 0 25px}
+.help-api>summary{cursor:pointer;color:#526749;font-size:13px}
+@media(max-width:760px){
+  .settings-tabs{gap:20px;margin-bottom:20px}
+  .settings-tabs>button{min-height:44px;font-size:13px}
+  .settings-panel .record-list>div{flex-wrap:wrap}
+  .settings-panel .record-list>div>span{min-width:0;overflow-wrap:anywhere}
+  .json-import-tools{gap:18px}
+  .json-import-tools>.button-row{width:100%}
+  .json-import-tools>.button-row>button{flex:1;min-width:0}
+  .manual-import-form{padding:20px 18px}
+  .manual-import-destination,.manual-import-question{grid-template-columns:1fr;gap:16px}
+  .manual-import-question>.field:nth-of-type(n+3)>textarea{min-height:140px}
+  .manual-import-footer{flex-wrap:wrap}
+  .manual-import-footer>.primary{width:100%}
+}
 .practice-setup{max-width:900px;margin:10px auto 0}
 .practice-scope-options{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:22px}
 .practice-scope-option{display:grid;justify-items:start;gap:12px;padding:26px 28px;border:1px solid var(--border);border-radius:14px;background:var(--paper);text-align:left;transition:background .15s,border-color .15s}
