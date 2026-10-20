@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { type Change, diffLibraries, emptyLibrary, importSchema, prepareImport } from '../shared/model';
-import { ImportPreview } from '../src/ImportPreview';
+import { ImportPreview, QuestionReview } from '../src/ImportPreview';
 
 function render(changes: Change[], mode: 'merge' | 'restore' = 'merge') {
   return renderToStaticMarkup(createElement(ImportPreview, { changes, mode }));
+}
+
+function renderReview(change: Change) {
+  return renderToStaticMarkup(createElement(QuestionReview, { change }));
 }
 
 // The secondary section can contain nested <details>, so split at its opening
@@ -37,8 +41,8 @@ function addedQuestion(id = 'question-internal-id', title = 'Redis 数据类型'
   };
 }
 
-describe('导入审阅只默认呈现需要核对的问答正文', () => {
-  it('真实导入差异中，四字段与渲染后的 Markdown 在正文，ID、标签及关联在默认收起的资料区', () => {
+describe('导入审阅默认收起，展开时只呈现需要核对的问答正文', () => {
+  it('真实导入差异默认只挂载题名，问答和 Markdown 延迟到展开后，辅助资料保持折叠', () => {
     const base = emptyLibrary();
     const target = prepareImport(base, importSchema.parse({
       schema_version: 1,
@@ -54,11 +58,12 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
 
     expect(primary).toContain('2 道题需要审阅');
     expect(primary).toContain('question-changes');
-    expect(fieldLabels(primary)).toEqual(['标题', '问题', '复习提纲', '完整答案', '标题', '问题', '复习提纲', '完整答案']);
-    expect(primary).toContain('<h2>面试口述版</h2>');
-    expect(primary).toContain('<strong>访问方式</strong>');
-    expect(primary).toContain('<li>String 缓存对象</li>');
-    expect(primary).toContain('<code>GET key</code>');
+    expect(primary).toContain('Redis 数据类型');
+    expect(primary).toContain('Redis 底层实现');
+    expect(fieldLabels(primary)).toEqual([]);
+    for (const value of ['五大类型适合什么场景？', '什么是 SDS？', '访问方式', 'String 缓存对象', 'GET key', 'review-fields', '<h2>', '<strong>访问方式</strong>', '<li>', '<code>']) {
+      expect(primary).not.toContain(value);
+    }
     for (const value of ['question-internal-id', 'project-internal-id', 'topic-internal-id', 'relation-internal-id', 'metadata-only-limitations', '历史版本编号', '关系起点', '数据类型知识点', 'Redis 数据类型 ↔ Redis 底层实现']) {
       expect(primary).not.toContain(value);
       expect(secondary).toContain(value);
@@ -67,6 +72,20 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
     const questionOpeners = [...primary.matchAll(/<details class="change-row question-change"[^>]*>/g)].map(match => match[0]);
     expect(questionOpeners).toHaveLength(2);
     for (const opener of questionOpeners) expect(opener).not.toMatch(/\sopen(?:\s|=|>)/);
+  });
+
+  it('题目详情只展示四个审阅字段，并渲染 Markdown，内部字段不混入正文', () => {
+    const html = renderReview(addedQuestion());
+    expect(fieldLabels(html)).toEqual(['标题', '问题', '复习提纲', '完整答案']);
+    expect(html).toContain('Redis 数据类型');
+    expect(html).toContain('五大类型适合什么场景？');
+    expect(html).toContain('<h2>面试口述版</h2>');
+    expect(html).toContain('<strong>访问方式</strong>');
+    expect(html).toContain('<li>String 用来缓存对象</li>');
+    expect(html).toContain('<code>GET key</code>');
+    for (const value of ['question-internal-id', 'project-internal-id', 'topic-internal-id', 'metadata-only-limitations', '历史版本编号']) {
+      expect(html).not.toContain(value);
+    }
   });
 
   it('只更新元数据或历史版本时，不生成缺少问答正文的空卡片', () => {
@@ -87,30 +106,40 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
   });
 
   it('修改答案保留前后对照及 Markdown，不把未变字段误呈现为空', () => {
-    const { primary, secondary } = sections(render([{
+    const change: Change = {
       kind: 'cards', id: 'question-internal-id', name: 'Redis 持久化', operation: 'update', fields: [
         { field: 'answer_md', before: '旧答案 **RDB 快照**\n\n`SAVE`', after: '新答案 **AOF 日志**\n\n| 方式 | 内容 |\n| --- | --- |\n| AOF | 写命令 |' },
         { field: 'revision', before: 1, after: 2 },
       ],
-    }]));
-    expect(fieldLabels(primary)).toEqual(['完整答案']);
-    expect(primary).toContain('当前内容');
-    expect(primary).toContain('导入后');
-    expect(primary).toContain('<strong>RDB 快照</strong>');
-    expect(primary).toContain('<strong>AOF 日志</strong>');
-    expect(primary).toContain('<code>SAVE</code>');
-    expect(primary).toContain('<table>');
-    expect(primary).not.toContain('暂未填写');
-    expect(primary).not.toContain('历史版本编号');
+    };
+    const { primary, secondary } = sections(render([change]));
+    expect(primary).not.toContain('旧答案');
+    expect(primary).not.toContain('新答案');
+    expect(primary).not.toContain('<table>');
+    const detail = renderReview(change);
+    expect(fieldLabels(detail)).toEqual(['完整答案']);
+    expect(detail).toContain('当前内容');
+    expect(detail).toContain('导入后');
+    expect(detail).toContain('<strong>RDB 快照</strong>');
+    expect(detail).toContain('<strong>AOF 日志</strong>');
+    expect(detail).toContain('<code>SAVE</code>');
+    expect(detail).toContain('<table>');
+    expect(detail).not.toContain('暂未填写');
+    expect(detail).not.toContain('历史版本编号');
     expect(secondary).toContain('历史版本编号');
   });
 
   it('删除问题即使没有字段差异，也保留题名和移除提示且默认收起', () => {
-    const { primary } = sections(render([{ kind: 'cards', id: 'removed-id', name: '准备移除的 Redis 问题', operation: 'remove', fields: [] }]));
+    const change: Change = { kind: 'cards', id: 'removed-id', name: '准备移除的 Redis 问题', operation: 'remove', fields: [] };
+    const { primary } = sections(render([change]));
     expect(primary).toContain('1 道题需要审阅');
     expect(primary).toContain('准备移除的 Redis 问题');
-    expect(primary).toContain('这道题将从题库中移除');
+    expect(primary).not.toContain('这道题将从题库中移除');
     expect(primary.match(/<details class="change-row question-change"[^>]*>/)?.[0]).not.toMatch(/\sopen(?:\s|=|>)/);
+    const detail = renderReview(change);
+    expect(detail).toContain('这道题将从题库中移除');
+    expect(detail).toContain('准备移除的 Redis 问题');
+    expect(fieldLabels(detail)).toEqual(['标题']);
   });
 
   it('完整恢复在折叠区外明确提示问题和其他资料的删除数量', () => {
@@ -120,7 +149,7 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
       { kind: 'relations', id: 'removed-relation', name: '旧关联', operation: 'remove', fields: [] },
     ], 'restore'));
     expect(primary).toContain('此次恢复将移除 1 道题及 2 条其他资料');
-    expect(primary).toContain('这道题将从题库中移除');
+    expect(primary).not.toContain('这道题将从题库中移除');
     expect(primary).not.toContain('旧关联');
     expect(secondary).toContain('旧关联');
     expect(secondary.match(/^<details[^>]*>/)?.[0]).not.toMatch(/\sopen(?:\s|=|>)/);
@@ -151,7 +180,7 @@ describe('导入审阅只默认呈现需要核对的问答正文', () => {
       ...field,
       after: '[本地文件](F:/private/secret.md)\n\n[官方资料](https://redis.io/docs/)\n\n`SET key value`',
     } : field);
-    const { primary } = sections(render([change]));
+    const primary = renderReview(change);
     expect(primary).not.toContain('<script');
     expect(primary).not.toContain('<img');
     expect(primary).not.toContain('onerror=');

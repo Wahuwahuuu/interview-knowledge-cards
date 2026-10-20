@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Change } from '../shared/model';
 import { Markdown } from './Markdown';
 
@@ -19,16 +20,14 @@ function ReviewValue({ value, markdown }: { value: unknown; markdown: boolean })
   return <div className="review-value">{markdown ? <Markdown text={print(value)} /> : <p>{print(value)}</p>}</div>;
 }
 
-function QuestionChange({ change }: { change: Change }) {
+export function QuestionReview({ change }: { change: Change }) {
   const fields = reviewFields.flatMap(([name, label]) => {
     const field = change.fields.find(field => field.field === name);
     if (field) return [{ ...field, label }];
     if (name === 'title' && change.operation !== 'update') return [{ field: name, before: change.operation === 'remove' ? change.name : undefined, after: change.operation === 'add' ? change.name : undefined, label }];
     return [];
   });
-  return <details className="change-row question-change">
-    <summary><span className={'change-badge ' + change.operation}>{operationNames[change.operation]}</span><span>{change.name}</span></summary>
-    <div className="change-fields review-fields">
+  return <div className="change-fields review-fields">
       {change.operation === 'remove' && <p className="notice warning">这道题将从题库中移除。</p>}
       {fields.map(field => <section className="review-field" key={field.field}>
         <h4>{field.label}</h4>
@@ -37,7 +36,14 @@ function QuestionChange({ change }: { change: Change }) {
           <div><small>导入后</small><ReviewValue value={field.after} markdown={field.field.endsWith('_md')} /></div>
         </div> : <ReviewValue value={change.operation === 'remove' ? field.before : field.after} markdown={field.field.endsWith('_md')} />}
       </section>)}
-    </div>
+  </div>;
+}
+
+function QuestionChange({ change }: { change: Change }) {
+  const [expanded, setExpanded] = useState(false);
+  return <details className="change-row question-change" onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary><span className={'change-badge ' + change.operation}>{operationNames[change.operation]}</span><span>{change.name}</span></summary>
+    {expanded && <QuestionReview change={change} />}
   </details>;
 }
 

@@ -31,3 +31,51 @@
 .import-secondary>summary{cursor:pointer;color:#809170;font-size:12px;line-height:1.8}
 .import-secondary>p{font-size:12px;margin:12px 0}
 @media(max-width:760px){.review-fields{padding:4px 12px 16px}.review-value{padding:12px}.question-change>summary{font-size:13px;padding:13px 12px}}
+
+.breadcrumb button:not(.mobile-menu){padding:6px 0;border-radius:3px;font-size:inherit;color:inherit;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.breadcrumb button:not(.mobile-menu):hover{color:var(--green);text-decoration:underline;text-underline-offset:4px}
+.breadcrumb button[aria-current=page]{color:#526749;font-weight:600}
+.operation-status{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--green);white-space:nowrap}
+.practice-setup{max-width:900px;margin:10px auto 0}
+.practice-scope-options{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:22px}
+.practice-scope-option{display:grid;justify-items:start;gap:12px;padding:26px 28px;border:1px solid var(--border);border-radius:14px;background:var(--paper);text-align:left;transition:background .15s,border-color .15s}
+.practice-scope-option>svg{color:#7a906e;margin-bottom:5px}
+.practice-scope-option>strong{font-size:20px}
+.practice-scope-option>span{font-size:13px;color:var(--muted);line-height:1.7}
+.practice-scope-option:hover{border-color:#9bad8f;background:#f4f7ef}
+.practice-scope-option.selected{border-color:#7c9970;background:#edf3e5;box-shadow:inset 0 0 0 1px #7c9970}
+.practice-scope-option.selected>svg{color:var(--green)}
+.practice-setup-controls{display:grid;gap:24px}
+.practice-setup-controls>label{display:grid;gap:9px;font-size:13px;color:#526749;font-weight:600}
+.practice-setup-controls>div>.muted{display:block;margin-bottom:9px}
+.practice-setup-controls>.button-row{justify-content:space-between;gap:14px;border-top:1px solid var(--border);padding-top:22px}
+.practice-setup-controls>.button-row>.muted{margin:0}
+.practice-mode-toggle{display:inline-flex;align-self:flex-start;width:max-content;max-width:100%}
+.practice-mode-toggle button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.practice-session-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;max-width:760px;margin:0 auto 25px}
+.practice-scope-name{font-size:12px;color:var(--muted)}
+.practice-progress>.text-button{padding:0;font-weight:400;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.practice-card-label{justify-content:flex-end}
+.practice-empty{padding:12px 15px;background:#f4f6ef;border-radius:8px}
+@media(max-width:760px){
+  .breadcrumb{min-width:0;flex:1;max-width:none;overflow:hidden}
+  .breadcrumb>svg{flex-shrink:0}
+  .topbar-actions{flex-shrink:0}
+  .operation-status{font-size:10px;gap:4px}
+  .practice-setup{margin:0}
+  .practice-scope-options{gap:12px;margin-bottom:16px}
+  .practice-scope-option{padding:20px 18px;gap:9px}
+  .practice-scope-option>strong{font-size:18px}
+  .practice-scope-option>span{font-size:12px}
+  .practice-session-toolbar{flex-wrap:wrap;margin-bottom:20px}
+  .practice-session-toolbar>.button-row{justify-content:space-between;width:100%}
+  .practice-session-toolbar>.practice-mode-toggle{margin-left:auto}
+  .practice-mode-toggle button{min-height:42px;padding:9px 13px}
+}
+@media(max-width:500px){
+  .practice-scope-options{grid-template-columns:1fr}
+  .practice-scope-option{grid-template-columns:28px 1fr;column-gap:14px;padding:18px 20px}
+  .practice-scope-option>svg{grid-row:1/3;margin:4px 0 0}
+  .practice-scope-option>span{grid-column:2}
+  .practice-setup-controls>.button-row>.primary{width:100%}
+}
