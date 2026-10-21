@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { verifyDirectImport } from './verify-direct-import.mjs';
 const origin = 'http://127.0.0.1:8788', reports = [], stamp = crypto.randomUUID();
 const env = { ...process.env, WRANGLER_SEND_METRICS: 'false', CLOUDFLARE_CF_FETCH_ENABLED: 'false' };
 const migration = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'd1', 'migrations', 'apply', 'DB', '--local', '--config', 'wrangler.test.jsonc'], { encoding: 'utf8', env, windowsHide: true });
@@ -21,9 +22,9 @@ try {
   await apply({ schema_version: 1, mode: 'restore', batch_id: 'reset-' + stamp });
   const seed = JSON.parse(await readFile('examples/demo-import.json', 'utf8')); seed.batch_id = 'test-seed-' + stamp;
   const staged = await ok('/agent/imports/preview', 'POST', seed, true);
-  assert.equal((await library()).cards.length, 0); report('AI 提交草稿不改变正式题库');
+  assert.equal(staged.status, 'applied'); assert.equal((await library()).cards.length, 2); report('AI 兼容提交入口直接导入，记录和独立读取均确认已保存');
   assert.equal((await request('/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision }, true)).status, 403);
-  assert.equal((await request('/agent/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision }, true)).status, 403); report('机器身份不能通过任一路径确认导入');
+  assert.equal((await request('/agent/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision }, true)).status, 403); report('机器身份仍不能调用人工确认和管理接口');
   const applied = await ok('/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision });
   let state = applied.library; assert.equal(state.cards.length, 2); assert.equal(state.projects.length, 1); assert.equal(state.relations.length, 1);
   for (const occurrence of seed.occurrences) assert.equal(state.occurrences.find(v => v.id === occurrence.id).original_answer_md, occurrence.original_answer_md);
@@ -40,7 +41,7 @@ try {
   const attempts = await Promise.all(['A', 'B'].map(tag => request('/cards/' + card.id, 'PUT', { expected_revision: state.revision, value: { ...card, summary_md: '并发提交 ' + tag } })));
   assert.deepEqual(attempts.map(v => v.status).sort(), [200, 409]); state = await library(); assert.equal(state.revisions.filter(v => v.card_id === card.id).length, 3); report('真实 D1 并发事务只接受一份修改，失败事务不留下历史');
   card = state.cards.find(c => c.id === card.id);
-  const pending = await ok('/agent/imports/preview', 'POST', { schema_version: 1, batch_id: 'stale-' + stamp, cards: [{ ...card, summary_md: '待确认的 AI 提纲' }] }, true);
+  const pending = await ok('/imports/preview', 'POST', { schema_version: 1, batch_id: 'stale-' + stamp, cards: [{ ...card, summary_md: '兼容旧草稿的提纲' }] });
   state = await ok('/cards/' + card.id, 'PUT', { expected_revision: state.revision, value: { ...card, summary_md: '人工后续修改' } });
   const beforeStaleApply = await library();
   assert.ok(pending.base_revision < beforeStaleApply.revision);
@@ -57,7 +58,7 @@ try {
   assert.equal(confirmedFresh.batch.status, 'applied'); assert.equal(confirmedFresh.already_applied, false);
   state = await library(); assert.deepEqual(state.cards, confirmedFresh.library.cards); assert.equal(state.revision, confirmedFresh.library.revision);
   assert.equal(state.revision, beforeStaleApply.revision + 1); assert.equal(state.cards.length, beforeStaleApply.cards.length);
-  assert.equal(state.cards.find(c => c.id === card.id).summary_md, '待确认的 AI 提纲');
+  assert.equal(state.cards.find(c => c.id === card.id).summary_md, '兼容旧草稿的提纲');
   assert.equal(state.revisions.length, beforeStaleApply.revisions.length + 1);
   const confirmedBatch = await ok('/imports/' + fresh.id); assert.equal(confirmedBatch.status, 'applied'); assert.ok(confirmedBatch.applied_at);
   report('人工重新确认后，独立读取题库及批次都证明导入已持久保存');
@@ -198,6 +199,7 @@ try {
   state = await apply({ ...projectBackup, batch_id: 'recover-project-' + stamp });
   for (const kind of ['projects', 'cards', 'sources', 'topics', 'occurrences', 'relations', 'revisions']) assert.deepEqual(state[kind], beforeProjectDelete[kind]);
   report('完整备份能够恢复已删除项目、归档卡片和所有原有关联');
+  await verifyDirectImport({ ok, request, library, report, stamp });
   const staticFiles = await readdir('dist/assets'); let staticText = await readFile('dist/index.html', 'utf8'); for (const name of staticFiles) if (name.endsWith('.js')) staticText += await readFile(join('dist/assets', name), 'utf8');
   assert.ok(!staticText.includes(seed.occurrences[0].original_answer_md.slice(0, 55))); assert.ok(!staticText.includes('admin@example.com')); report('公开构建资源不包含私有问答或账户邮箱');
   await mkdir('test-results', { recursive: true }); await writeFile('test-results/api-verification.json', JSON.stringify({ passed: true, at: new Date().toISOString(), database: 'interview-cards-tests', scenarios: reports }, null, 2));

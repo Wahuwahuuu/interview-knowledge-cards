@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { emptyLibrary, type ImportBatch } from '../shared/model';
+import { emptyLibrary, importSchema, type ImportBatch } from '../shared/model';
 import { ApiError, api, loadLibrary } from '../src/api';
-import { applyImportBatch, cancelImportBatch, refreshImportBatch } from '../src/import-actions';
+import { applyImportBatch, cancelImportBatch, createImportSubmitter, refreshImportBatch } from '../src/import-actions';
 
 vi.mock('../src/api', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/api')>();
@@ -20,6 +20,33 @@ function batch(overrides: Partial<ImportBatch> = {}): ImportBatch {
 }
 
 beforeEach(() => vi.resetAllMocks());
+
+describe('直接导入与网络重试', () => {
+  const envelope = importSchema.parse({ schema_version: 1, projects: [{ id: 'project', name: '测试题库' }] });
+  it('网络响应丢失后复用原批次 ID，成功只取正式入库结果', async () => {
+    const submit = createImportSubmitter();
+    const error = new TypeError('Failed to fetch'), result = { batch: batch({ status: 'applied' }), library: emptyLibrary(), already_applied: true };
+    apiMock.mockRejectedValueOnce(error).mockResolvedValueOnce(result);
+    await expect(submit(envelope)).rejects.toBe(error);
+    await expect(submit(structuredClone(envelope))).resolves.toBe(result);
+    const [first, retry] = apiMock.mock.calls.map(([path, options]) => ({ path, value: JSON.parse(options!.body as string) }));
+    expect(first.path).toBe('/imports/submit'); expect(retry).toEqual(first); expect(first.value.batch_id).toBeTruthy();
+    expect(loadLibraryMock).not.toHaveBeenCalled();
+  });
+  it('修改内容后创建新批次，返回旧内容重试仍复用原批次', async () => {
+    const submit = createImportSubmitter(); apiMock.mockResolvedValue({});
+    await submit(envelope);
+    await submit({ ...envelope, projects: [{ ...envelope.projects[0], name: '新的题库名称' }] });
+    await submit(envelope);
+    const ids = apiMock.mock.calls.map(([, options]) => JSON.parse(options!.body as string).batch_id);
+    expect(ids[0]).not.toBe(ids[1]); expect(ids[2]).toBe(ids[0]);
+  });
+  it('保留上传文件指定的批次标识', async () => {
+    const submit = createImportSubmitter(); apiMock.mockResolvedValue({});
+    await submit({ ...envelope, batch_id: 'file-batch' });
+    expect(JSON.parse(apiMock.mock.calls[0][1]!.body as string).batch_id).toBe('file-batch');
+  });
+});
 
 describe('取消导入草稿', () => {
   it('只取消指定草稿，不提交导入或读取整库', async () => {

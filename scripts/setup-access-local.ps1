@@ -6,7 +6,7 @@ $env:CLOUDFLARE_CF_FETCH_ENABLED = 'false'
 $apiAddress = [Uri]'https://api.cloudflare.com'
 $configuredProxy = [Net.WebRequest]::GetSystemWebProxy().GetProxy($apiAddress)
 if ($configuredProxy.AbsoluteUri -ne $apiAddress.AbsoluteUri) { $env:HTTPS_PROXY = $configuredProxy.AbsoluteUri; $env:HTTP_PROXY = $configuredProxy.AbsoluteUri }
-Write-Host '配置题库的邮箱验证码与独立 AI 草稿入口。'
+Write-Host '配置题库的邮箱验证码与独立 AI 导入入口。'
 Write-Host '使用刚刚在 Cloudflare 官方页面创建的临时 Access 配置 Token；不保存该 Token。'
 $setupSecureToken = Read-Host '请粘贴临时 Access API Token（输入不会显示）' -AsSecureString
 $setupTokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($setupSecureToken)

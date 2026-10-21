@@ -70,6 +70,6 @@ export function buildManualImportEnvelope(library: Library, draft: ManualImportD
     ids.add(row.id);
     return { ...existing, id: row.id, project_id: projectId, title, question, summary_md: row.summary, answer_md: row.answer, important: row.important ?? existing?.important };
   });
-  // Omit batch_id: changing the proposed text must create a fresh immutable preview batch.
+  // The submitter assigns a stable batch ID for retries of the same content.
   return importSchema.parse({ schema_version: 1, mode: 'merge', projects, cards });
 }

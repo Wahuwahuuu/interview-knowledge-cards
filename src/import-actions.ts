@@ -1,5 +1,19 @@
-import type { ImportBatch, Library } from '../shared/model';
+import { canonical, type ImportBatch, type ImportEnvelope, type Library } from '../shared/model';
 import { ApiError, api, loadLibrary } from './api';
+
+export type ImportResult = { batch: ImportBatch; library: Library; already_applied: boolean };
+
+// Keep the request identity after an ambiguous network failure. Retrying unchanged
+// content must retrieve the committed result instead of creating a second batch.
+export function createImportSubmitter() {
+  const ids = new Map<string, string>();
+  return async (envelope: ImportEnvelope): Promise<ImportResult> => {
+    const fingerprint = canonical(envelope);
+    const batchId = envelope.batch_id ?? ids.get(fingerprint) ?? crypto.randomUUID();
+    ids.set(fingerprint, batchId);
+    return api<ImportResult>('/imports/submit', { method: 'POST', body: JSON.stringify({ ...envelope, batch_id: batchId }) });
+  };
+}
 
 export async function refreshImportBatch(batch: ImportBatch): Promise<ImportBatch> {
   const path = `/imports/${encodeURIComponent(batch.id)}`;

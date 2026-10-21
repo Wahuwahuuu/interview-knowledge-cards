@@ -22,7 +22,7 @@ function ReviewValue({ value, markdown, inline }: { value: unknown; markdown: bo
   return <div className="review-value">{markdown ? <Markdown text={print(value)} /> : <p>{inline ? <InlineMarkdown text={print(value)} /> : print(value)}</p>}</div>;
 }
 
-export function QuestionReview({ change }: { change: Change }) {
+export function QuestionReview({ change, review = true }: { change: Change; review?: boolean }) {
   const fields = reviewFields.flatMap(([name, label]) => {
     const field = change.fields.find(field => field.field === name);
     if (field) return [{ ...field, label }];
@@ -30,22 +30,22 @@ export function QuestionReview({ change }: { change: Change }) {
     return [];
   });
   return <div className="change-fields review-fields">
-      {change.operation === 'remove' && <p className="notice warning">这道题将从题库中移除。</p>}
+      {change.operation === 'remove' && <p className="notice warning">{review ? '这道题将从题库中移除。' : '这条记录包含移除这道题的操作。'}</p>}
       {fields.map(field => <section className="review-field" key={field.field}>
         <h4>{field.label}</h4>
         {change.operation === 'update' ? <div className="diff-columns">
-          <div><small>当前内容</small><ReviewValue value={field.before} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} /></div>
+          <div><small>{review ? '当前内容' : '导入前'}</small><ReviewValue value={field.before} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} /></div>
           <div><small>导入后</small><ReviewValue value={field.after} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} /></div>
         </div> : <ReviewValue value={change.operation === 'remove' ? field.before : field.after} markdown={field.field.endsWith('_md')} inline={field.field === 'title' || field.field === 'question'} />}
       </section>)}
   </div>;
 }
 
-function QuestionChange({ change }: { change: Change }) {
+function QuestionChange({ change, review }: { change: Change; review: boolean }) {
   const [expanded, setExpanded] = useState(false);
   return <details className="change-row question-change" onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary><span className={'change-badge ' + change.operation}>{operationNames[change.operation]}</span><span>{change.name}</span></summary>
-    {expanded && <QuestionReview change={change} />}
+    {expanded && <QuestionReview change={change} review={review} />}
   </details>;
 }
 
@@ -58,7 +58,7 @@ function SupportingChange({ change }: { change: Change }) {
   </details>;
 }
 
-export function ImportPreview({ changes, mode }: { changes: Change[]; mode: 'merge' | 'restore' }) {
+export function ImportPreview({ changes, mode, review = true }: { changes: Change[]; mode: 'merge' | 'restore'; review?: boolean }) {
   const questions = changes.filter(change => change.kind === 'cards' && (change.operation !== 'update' || change.fields.some(field => reviewFieldNames.has(field.field))));
   const supporting = changes.flatMap(change => {
     if (change.kind !== 'cards') return [change];
@@ -69,15 +69,15 @@ export function ImportPreview({ changes, mode }: { changes: Change[]; mode: 'mer
   const removedSupporting = changes.filter(change => change.kind !== 'cards' && change.operation === 'remove').length;
   return <>
     <div className="import-summary">
-      <strong>{questions.length ? `${questions.length} 道题需要审阅` : changes.length ? '本次没有题目正文变化' : '内容相同，没有需要应用的变化。'}</strong>
-      {!!questions.length && <p className="muted">核对标题、问题、复习提纲、完整答案及重点标记。修改已有题目时，会对照显示本次改动。</p>}
+      <strong>{questions.length ? review ? `${questions.length} 道题需要审阅` : `本次涉及 ${questions.length} 道题` : changes.length ? '本次没有题目正文变化' : '内容相同，没有需要应用的变化。'}</strong>
+      {!!questions.length && <p className="muted">{review ? '核对标题、问题、复习提纲、完整答案及重点标记。修改已有题目时，会对照显示本次改动。' : '点击题目查看本次内容，修改的题目会显示前后对照。'}</p>}
       {!questions.length && !!changes.length && <p className="muted">本次更新其他题库资料，详情已收起。</p>}
     </div>
-    {mode === 'restore' && (removedQuestions > 0 || removedSupporting > 0) && <p className="notice warning">此次恢复将移除 {removedQuestions} 道题及 {removedSupporting} 条其他资料，请确认这些内容不再需要。</p>}
-    {!!questions.length && <div className="change-list question-changes">{questions.map(change => <QuestionChange key={change.id} change={change} />)}</div>}
+    {review && mode === 'restore' && (removedQuestions > 0 || removedSupporting > 0) && <p className="notice warning">此次恢复将移除 {removedQuestions} 道题及 {removedSupporting} 条其他资料，请确认这些内容不再需要。</p>}
+    {!!questions.length && <div className="change-list question-changes">{questions.map(change => <QuestionChange key={change.id} change={change} review={review} />)}</div>}
     {!!supporting.length && <details className="import-secondary">
-      <summary>{mode === 'restore' ? '其他资料与恢复明细' : '其他导入资料（无需逐项审阅）'}</summary>
-      <p className="muted">分类、知识点、来源、问题关联及系统字段会随本批保存，通常可以跳过。</p>
+      <summary>{mode === 'restore' ? '其他资料与恢复明细' : review ? '其他导入资料（无需逐项审阅）' : '其他导入资料'}</summary>
+      <p className="muted">{review ? '分类、知识点、来源、问题关联及系统字段会随本批保存，通常可以跳过。' : '本批次的分类、知识点、来源、问题关联及系统字段。'}</p>
       <div className="change-list">{supporting.map(change => <SupportingChange key={`${change.kind}:${change.id}`} change={change} />)}</div>
     </details>}
   </>;

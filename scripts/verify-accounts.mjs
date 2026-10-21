@@ -87,7 +87,26 @@ try {
   assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeDeleteB);
   assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial); report('删除自己的同 ID 项目及全部卡片，不影响其他账户或管理员题库');
   const agent=(await ok('/api/v1/agent/library',{agent:true})).value; assert.deepEqual(agent.cards,initial.cards);
-  assert.equal((await req('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',agent:true,value:{expected_revision:1}})).status,403); report('机器凭证绑定原管理员题库，并仍禁止正式应用');
+  assert.equal((await req('/api/v1/imports/'+previewA.id+'/apply',{method:'POST',agent:true,value:{expected_revision:1}})).status,403); report('机器凭证绑定原管理员题库，仍禁止调用人工管理接口');
+  const directInput = { schema_version:1, batch_id:'direct-shared-'+stamp, projects:[{id:'direct-project',name:'直接导入隔离题库'}], cards:[{id:'direct-card',project_id:'direct-project',title:'隔离题目',question:'属于谁的题库？',answer_md:'甲的内容'}], user_id:b.value.user_id };
+  const beforeDirectB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
+  editA = (await ok('/api/v1/imports/submit',{method:'POST',cookie:a.cookie,value:directInput})).value.library;
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeDirectB);
+  assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial);
+  assert.equal((await req('/api/v1/imports/'+directInput.batch_id+'/retry',{method:'POST',cookie:b.cookie,value:{}})).status,404);
+  const directB = (await ok('/api/v1/imports/submit',{method:'POST',cookie:b.cookie,value:{...directInput,cards:[{...directInput.cards[0],answer_md:'乙的内容'}]}})).value;
+  assert.equal(directB.batch.status,'applied'); assert.equal(directB.library.cards.find(card=>card.id==='direct-card').answer_md,'乙的内容');
+  assert.equal((await ok('/api/v1/library',{cookie:a.cookie})).value.cards.find(card=>card.id==='direct-card').answer_md,'甲的内容');
+  assert.equal((await req('/api/v1/imports/submit',{method:'POST',value:directInput})).status,401);
+  const afterDirectB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
+  report('直接导入、记录和重试按账号隔离，同 ID 不串库，伪造归属和匿名提交不能越权');
+  const agentDirect = (await ok('/api/v1/agent/imports/submit',{method:'POST',agent:true,value:{...directInput,cards:[{...directInput.cards[0],answer_md:'管理员 AI 内容'}]}})).value;
+  assert.equal(agentDirect.status,'applied');
+  const adminAfterDirect = (await ok('/api/v1/library',{localAdmin:true})).value;
+  assert.equal(adminAfterDirect.cards.find(card=>card.id==='direct-card').answer_md,'管理员 AI 内容');
+  assert.deepEqual((await ok('/api/v1/library',{cookie:a.cookie})).value,editA);
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,afterDirectB);
+  report('AI 直接导入只写管理员题库，正文中的其他用户 ID 无效，其他账户资料保持原样');
   assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:aEmail,password:'wrong-password'}})).status,401);
   assert.equal((await req('/api/v1/auth/login',{method:'POST',value:{email:'unknown@example.com',password:'wrong-password'}})).status,401);
   const loginA=await ok('/api/v1/auth/login',{method:'POST',value:{email:aEmail.toUpperCase(),password:pw}}); assert.equal(loginA.value.user_id,a.value.user_id);
@@ -111,7 +130,7 @@ try {
   }
   assert.equal(rate.status,429); report('重复密码尝试受到速率限制');
   const claim=await ok('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw,display_name:'管理员'}});
-  const adminLogin=await ok('/api/v1/auth/login',{method:'POST',value:{email:'admin@example.com',password:pw}}); assert.equal(adminLogin.value.role,'admin'); assert.equal((await ok('/api/v1/library',{cookie:adminLogin.cookie})).value.cards.length,2);
+  const adminLogin=await ok('/api/v1/auth/login',{method:'POST',value:{email:'admin@example.com',password:pw}}); assert.equal(adminLogin.value.role,'admin'); assert.equal((await ok('/api/v1/library',{cookie:adminLogin.cookie})).value.cards.length,adminAfterDirect.cards.length);
   assert.equal((await req('/bootstrap-admin/claim',{method:'POST',localAdmin:true,value:{password:pw}})).status,409); report('管理员一次性设置密码后可以用账号登录，保留原题库');
   await mkdir('test-results',{recursive:true}); await writeFile('test-results/accounts-verification.json',JSON.stringify({passed:true,at:new Date().toISOString(),local_database:config,reports},null,2));
   console.log('账户隔离验证完成：'+reports.length+' 项全部通过。');

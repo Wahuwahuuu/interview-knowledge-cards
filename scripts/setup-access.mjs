@@ -67,6 +67,7 @@ console.log('邮箱应用已配置：只允许 ' + config.vars.OWNER_EMAIL);
 let credential = await readAgentCredential();
 if (credential && credential.site_url !== site) throw new Error('已保存的机器凭证属于不同题库。');
 if (!credential) {
+  // Keep the legacy resource name so reconfiguration reuses the existing credential.
   const name = `面试知识卡 AI 草稿 ${config.name}`;
   const tokens = await cloud('/service_tokens');
   if (tokens.some(token => token.name === name)) throw new Error('已有同名机器凭证但本机未保存密钥，请由账户本人恢复凭证后再继续，不会重复创建。');
@@ -77,6 +78,7 @@ if (!credential) {
 }
 const agentApp = await ensureApp(`面试知识卡 AI ${config.name}`, `${hostname}/api/v1/agent/*`);
 state.agent_app_id = agentApp.id; state.agent_aud = agentApp.aud; state.agent_token_id = credential.token_id; persist();
+// Stable legacy policy name; Worker routes now allow ordinary direct imports only.
 await ensurePolicy(agentApp, 'AI 仅查询及提交草稿', 'non_identity', [{ service_token: { token_id: credential.token_id } }]);
 config.vars.ACCESS_TEAM_DOMAIN = team;
 config.vars.ACCESS_AUD = ownerApp.aud;

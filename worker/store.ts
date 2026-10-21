@@ -81,7 +81,7 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
     statements.push(db.prepare('INSERT INTO user_card_revisions(user_id,card_id,revision,saved_at,action,payload) VALUES (?,?,?,?,?,?)').bind(userId,entry.card_id, entry.revision, entry.saved_at, entry.action, JSON.stringify(entry)));
   }
   statements.push(db.prepare('UPDATE user_library_meta SET revision=revision+1 WHERE user_id=?').bind(userId));
-  if (options.batchId) statements.push(db.prepare("UPDATE user_import_batches SET status='applied',applied_at=? WHERE user_id=? AND id=? AND status='pending'").bind(new Date().toISOString(),userId, options.batchId));
+  if (options.batchId) statements.push(db.prepare("UPDATE user_import_batches SET status='applied',applied_at=?,error_message='' WHERE user_id=? AND id=? AND status='pending'").bind(new Date().toISOString(),userId, options.batchId));
   statements.push(db.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(userId,guard));
   try { await db.batch(statements); }
   catch (error) {

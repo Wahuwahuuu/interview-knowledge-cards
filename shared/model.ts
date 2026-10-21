@@ -50,7 +50,7 @@ export type Kind = typeof kinds[number];
 export const schemas = { projects: projectSchema, topics: topicSchema, sources: sourceSchema, cards: cardSchema, occurrences: occurrenceSchema, relations: relationSchema };
 export type Entity = Project | Topic | Card | Source | Occurrence | Relation;
 export type Change = { kind: Kind; id: string; name: string; operation: 'add' | 'update' | 'remove'; fields: { field: string; before: unknown; after: unknown }[] };
-export type ImportBatch = { id: string; status: 'pending' | 'applied' | 'cancelled'; base_revision: number; created_at: string; applied_at: string | null; mode: 'merge' | 'restore'; preview: Change[] };
+export type ImportBatch = { id: string; status: 'pending' | 'failed' | 'applied' | 'cancelled'; base_revision: number; created_at: string; applied_at: string | null; mode: 'merge' | 'restore'; preview: Change[]; error?: string; label?: string; question_count?: number };
 export const emptyLibrary = (): Library => ({ schema_version: 1, revision: 0, projects: [], topics: [], sources: [], cards: [], occurrences: [], relations: [], revisions: [] });
 
 export class AppError extends Error {

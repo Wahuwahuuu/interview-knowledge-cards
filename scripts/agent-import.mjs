@@ -15,8 +15,9 @@ if (!id || !secret) throw new Error('请在当前进程中提供 CF_ACCESS_CLIEN
 const data = await readFile(file, 'utf8');
 const parsed = JSON.parse(data);
 if (parsed.mode === 'restore') throw new Error('完整备份恢复只能从网页上传并确认');
-const response = await fetch(new URL('/api/v1/agent/imports/preview', site), { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'Content-Type': 'application/json', 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret }, body: data });
+if (!parsed.batch_id) throw new Error('请在 JSON 中填写稳定的 batch_id，网络失败后使用同一文件重试可避免重复导入');
+const response = await fetch(new URL('/api/v1/agent/imports/submit', site), { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(60_000), headers: { 'Content-Type': 'application/json', 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret }, body: data });
 if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('没有进入机器接口，请检查 Access 路径与服务凭证策略');
 const result = await response.json();
 if (!response.ok) throw new Error(result.error?.message ?? '提交失败');
-console.log(JSON.stringify({ batch_id: result.id, status: result.status, changes: result.preview.map(v => ({ type: v.kind, operation: v.operation, name: v.name })), next: '请在题库的维护与备份页面查看草稿并确认。' }, null, 2));
+console.log(JSON.stringify({ batch_id: result.id, status: result.status, changes: result.preview.map(v => ({ type: v.kind, operation: v.operation, name: v.name })), next: '题目已直接导入，可在网站的导入记录中查看结果。' }, null, 2));

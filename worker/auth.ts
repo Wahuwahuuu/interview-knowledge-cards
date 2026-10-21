@@ -56,7 +56,7 @@ export async function resolveIdentity(identity: Identity, request: Request, env:
   if (!user || user.status !== 'active') throw new AppError(503, '管理员账户尚未初始化');
   return userIdentity(user, request, env, identity.via);
 }
-export function assertOwner(identity: Identity) { if (identity.role === 'agent') throw new AppError(403, '机器凭证只能查询和提交草稿，不能确认或修改题库', 'FORBIDDEN'); }
+export function assertOwner(identity: Identity) { if (identity.role === 'agent') throw new AppError(403, '机器凭证请使用专用查询和普通导入入口，不能调用人工管理接口', 'FORBIDDEN'); }
 export function assertAdmin(identity: Identity) { if (identity.role !== 'admin') throw new AppError(403, '这个操作需要管理员权限', 'FORBIDDEN'); }
 export function assertOrigin(request: Request, env: Env) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;

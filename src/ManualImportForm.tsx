@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Eye, Plus, Trash2 } from 'lucide-react';
+import { Upload, Plus, Trash2 } from 'lucide-react';
 import type { ImportEnvelope, Library } from '../shared/model';
 import { buildManualImportEnvelope, createManualImportDraft, createManualImportQuestion, ManualImportError, type ManualImportQuestion } from '../shared/manual-import';
 import { ConfirmationDialog } from './ConfirmationDialog';
@@ -9,11 +9,11 @@ type Props = {
   offline: boolean;
   busy: boolean;
   resetKey: number;
-  onPreview: (envelope: ImportEnvelope) => Promise<void>;
+  onImport: (envelope: ImportEnvelope) => Promise<void>;
   onEdit?: () => void;
 };
 
-export function ManualImportForm({ library, offline, busy, resetKey, onPreview, onEdit }: Props) {
+export function ManualImportForm({ library, offline, busy, resetKey, onImport, onEdit }: Props) {
   const [draft, setDraft] = useState(() => createManualImportDraft(library.projects[0]?.id));
   const [error, setError] = useState(''), [errorField, setErrorField] = useState<string>(), [submitting, setSubmitting] = useState(false);
   const [removeQuestionId, setRemoveQuestionId] = useState<string>();
@@ -41,9 +41,9 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
     event.preventDefault();
     if (disabled || offline) return;
     setError(''); setErrorField(undefined); setSubmitting(true);
-    try { await onPreview(buildManualImportEnvelope(library, draft)); }
+    try { await onImport(buildManualImportEnvelope(library, draft)); }
     catch (failure) {
-      setError(failure instanceof Error ? failure.message : '预览未生成，请重试；填写的内容已保留。');
+      setError(failure instanceof Error ? failure.message : '导入未完成，请重试；填写的内容已保留。');
       if (failure instanceof ManualImportError && failure.field) {
         setErrorField(failure.field);
         const control = form.current?.elements.namedItem(failure.field);
@@ -54,7 +54,7 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
 
   const removingQuestion = draft.questions.find(question => question.id === removeQuestionId);
   return <><form ref={form} className="manual-import-form" onSubmit={event => void submit(event)}>
-    <div className="manual-import-heading"><h3>填写问答</h3><p className="muted">选择题库，填写题目和答案，再预览确认导入。答案可以留空，之后补充。</p></div>
+    <div className="manual-import-heading"><h3>填写问答</h3><p className="muted">选择题库，填写题目后直接导入。答案可以留空，之后补充。</p></div>
     <fieldset className="manual-import-fields" disabled={disabled}>
       <div className="manual-import-destination">
         <label className="field"><span>导入到题库</span><select name="project" value={draft.destination === 'new' ? '' : draft.projectId} aria-invalid={errorField === 'project' || undefined} onChange={event => { onEdit?.(); const projectId = event.target.value; setDraft(current => ({ ...current, destination: projectId ? 'existing' : 'new', projectId })); setError(''); setErrorField(undefined); }}>
@@ -74,7 +74,7 @@ export function ManualImportForm({ library, offline, busy, resetKey, onPreview, 
     </fieldset>
     {error && <p className="form-error manual-import-error" role="alert">{error}</p>}
     {offline && <p className="microcopy">当前离线，联网后可填写并导入。</p>}
-    <div className="manual-import-footer"><span className="microcopy">共 {draft.questions.length} 道题，预览后由你确认导入。</span><button className="primary" disabled={disabled || offline}><Eye size={16} />{submitting ? '正在生成预览…' : '预览导入'}</button></div>
+    <div className="manual-import-footer"><span className="microcopy">共 {draft.questions.length} 道题，导入结果会保存在下方记录中。</span><button className="primary" disabled={disabled || offline}><Upload size={16} />{submitting ? '正在导入…' : '导入题目'}</button></div>
   </form>{removingQuestion && <ConfirmationDialog title="移除这道待导入题目？" name={removingQuestion.title || `第 ${draft.questions.indexOf(removingQuestion) + 1} 题`} description="这道题当前填写的标题、问题和答案将从表单中移除，正式题库中的内容会保留。" busy={busy || submitting} confirmLabel="确认移除" onCancel={() => setRemoveQuestionId(undefined)} onConfirm={() => {
     if (busy || submitting || draft.questions.length <= 1) return;
     onEdit?.(); setDraft(current => ({ ...current, questions: current.questions.filter(question => question.id !== removeQuestionId) }));
