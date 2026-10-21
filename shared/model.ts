@@ -68,6 +68,21 @@ export function content(value: Entity): Record<string, unknown> {
 }
 export function sameContent(a: Entity, b: Entity) { return canonical(content(a)) === canonical(content(b)); }
 
+export function validateProjectNames(base: Project[], target: Project[]) {
+  const previous = new Map(base.map(project => [project.id, project.name.trim()]));
+  const counts = new Map<string, number>();
+  for (const project of target) {
+    const name = project.name.trim();
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  for (const project of target) {
+    const name = project.name.trim();
+    // Existing duplicates must not block unrelated edits or prevent users from renaming them.
+    if (previous.get(project.id) === name) continue;
+    if ((counts.get(name) ?? 0) > 1) throw new AppError(422, `项目“${name}”已存在，请使用其他名称或选择已有项目`, 'DUPLICATE_PROJECT_NAME');
+  }
+}
+
 export function validateLibrary(library: Library) {
   const maps = Object.fromEntries(kinds.map(k => [k, new Set(library[k].map(v => v.id))])) as Record<Kind, Set<string>>;
   for (const kind of kinds) if (maps[kind].size !== library[kind].length) throw new AppError(422, `${kind} 中存在重复 ID`);
@@ -101,6 +116,7 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
   for (const kind of kinds) if (new Set(envelope[kind].map(v => v.id)).size !== envelope[kind].length) throw new AppError(422, `${kind} 中存在重复 ID`);
   if (envelope.mode === 'restore') {
     const target = librarySchema.parse({ ...envelope, revision: base.revision });
+    validateProjectNames(base.projects, target.projects);
     validateLibrary(target);
     for (const card of target.cards) if (!target.revisions.some(v => v.card_id === card.id && v.revision === card.revision)) {
       target.revisions.push({ card_id: card.id, revision: card.revision, snapshot: card, saved_at: now, action: '备份恢复' });
@@ -125,6 +141,7 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
       if (kind === 'cards') target.revisions.push({ card_id: next.id, revision: next.revision, saved_at: now, action: previous ? '编辑答案或卡片' : '新建卡片', snapshot: structuredClone(next as Card) });
     }
   }
+  validateProjectNames(base.projects, target.projects);
   validateLibrary(target);
   return target;
 }

@@ -61,12 +61,16 @@ export function CardForm(props: FormProps & { initial: Card }) {
 export function RecordForm(props: FormProps & { kind: 'projects' | 'topics' | 'sources'; initial: Entity }) {
   const [value, setValue] = useState(props.initial as unknown as Record<string, string | number>);
   const { busy, error, submit } = useSubmit(props);
+  const name = String(value.name ?? '').trim();
+  const previous = props.library.projects.find(project => project.id === value.id);
+  const duplicateName = props.kind === 'projects' && previous?.name.trim() !== name && props.library.projects.some(project => project.id !== value.id && project.name.trim() === name);
   function set(key: string, next: string) { setValue(v => ({ ...v, [key]: next })); props.onDirty(true); }
-  return <form onSubmit={e => { e.preventDefault(); void submit({ [props.kind]: [value] }); }}>
+  return <form onSubmit={e => { e.preventDefault(); if (!duplicateName) void submit({ [props.kind]: [value] }); }}>
     <Field label={props.kind === 'projects' ? '项目名称' : props.kind === 'topics' ? '知识点名称' : '来源名称'}><input required value={String(value.name ?? '')} onChange={e => set('name', e.target.value)} /></Field>
+    {duplicateName && <p className="form-error" role="alert">项目“{name}”已存在，请使用其他名称或选择已有项目</p>}
     {props.kind === 'projects' && <Field label="项目说明"><textarea rows={5} value={String(value.description ?? '')} onChange={e => set('description', e.target.value)} /></Field>}
     {props.kind === 'sources' && <SourceFields value={value} set={set} />}
-    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span /> <button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存'}</button></div>
+    {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span /> <button className="primary" disabled={busy || duplicateName}><Save size={16} />{busy ? '保存中…' : '保存'}</button></div>
   </form>;
 }
 function SourceFields({ value, set }: { value: Record<string, unknown>; set: (key: string, value: string) => void }) {
