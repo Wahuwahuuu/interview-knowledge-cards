@@ -8,7 +8,8 @@ export function orderedFollowups(library: Library, cardId: string): Relation[] {
 
 /** A stable, depth-first question sequence; old cyclic links cannot trap a session. */
 export function followupCards(library: Library, rootId: string, projectId?: string): Card[] {
-  const cards = new Map(library.cards.filter(card => !card.archived && (!projectId || card.project_id === projectId)).map(card => [card.id, card]));
+  const scopeProjectId = projectId ?? library.cards.find(card => card.id === rootId)?.project_id;
+  const cards = new Map(library.cards.filter(card => !card.archived && (!scopeProjectId || card.project_id === scopeProjectId)).map(card => [card.id, card]));
   const children = new Map<string, string[]>();
   for (const relation of [...library.relations].filter(r => r.kind === 'followup').sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id, 'en', { numeric: true }))) {
     if (!children.has(relation.from_card_id)) children.set(relation.from_card_id, []);

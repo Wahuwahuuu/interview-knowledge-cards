@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
     "preview": "wrangler dev --config wrangler.local.jsonc --local --ip 127.0.0.1 --port 8787",
+    "preview:groups": "node scripts/preview-groups.mjs",
     "db:local": "wrangler d1 migrations apply DB --local --config wrangler.local.jsonc",
     "db:remote": "wrangler d1 migrations apply DB --remote",
     "test": "vitest run",

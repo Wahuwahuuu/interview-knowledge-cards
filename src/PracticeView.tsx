@@ -66,7 +66,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
     <div className="practice-setup-controls panel">
       {scope === 'project' && <label>选择题库<select aria-label="选择题库" value={selectedProjectId} onChange={event => { setSelectedProjectId(event.target.value); onScopeChange(event.target.value || undefined); }}>
         {!library.projects.length && <option value="">还没有题库</option>}
-        {library.projects.map(project => <option key={project.id} value={project.id}>{project.name}（{library.cards.filter(value => value.project_id === project.id && !value.archived).length} 题）</option>)}
+        {library.projects.map(project => <option key={project.id} value={project.id}>{project.name}（{practiceMainCards(library, project.id).length} 道主问题）</option>)}
       </select></label>}
       <div><span className="muted">出题方式</span><ModeToggle mode={mode} onChange={changeMode} /></div>
       <div className="button-row"><span className="muted">{scope === 'all' ? '全库' : selectedProject?.name ?? '所选题库'} · {cards.length} 道主问题</span><button className="primary" disabled={!cards.length} onClick={start}><BookOpen size={17} />开始发问<ArrowRight size={17} /></button></div>

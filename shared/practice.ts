@@ -30,10 +30,12 @@ export function practiceCards(library: Library, projectId?: string): Card[] {
 
 export function practiceMainCards(library: Library, projectId?: string): Card[] {
   const cards = practiceCards(library, projectId), ids = new Set(cards.map(card => card.id));
-  const children = new Set(library.relations.filter(r => r.kind === 'followup' && ids.has(r.from_card_id) && ids.has(r.to_card_id)).map(r => r.to_card_id));
+  const projects = new Map(cards.map(card => [card.id, card.project_id]));
+  const followups = library.relations.filter(r => r.kind === 'followup' && ids.has(r.from_card_id) && ids.has(r.to_card_id) && projects.get(r.from_card_id) === projects.get(r.to_card_id));
+  const children = new Set(followups.map(r => r.to_card_id));
   const roots = cards.filter(card => !children.has(card.id));
   const links = new Map<string, string[]>();
-  for (const relation of library.relations) if (relation.kind === 'followup' && ids.has(relation.from_card_id) && ids.has(relation.to_card_id)) {
+  for (const relation of followups) {
     if (!links.has(relation.from_card_id)) links.set(relation.from_card_id, []);
     links.get(relation.from_card_id)!.push(relation.to_card_id);
   }

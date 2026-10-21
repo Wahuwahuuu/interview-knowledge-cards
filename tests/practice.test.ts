@@ -45,7 +45,7 @@ describe('复习范围与稳定顺序', () => {
     const library = emptyLibrary();
     library.projects = [{ id: 'mysql', name: 'MySQL', revision: 1, updated_at: '', description: '' }];
     const html = renderToStaticMarkup(createElement(PracticeView, { library, initialProjectId: 'mysql', offline: false, busy: false, onMark: async () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
-    expect(html).toContain('<option value="mysql" selected="">MySQL（0 题）</option>');
+    expect(html).toContain('<option value="mysql" selected="">MySQL（0 道主问题）</option>');
     expect(html).toMatch(/<button class="primary" disabled="">/);
     expect(html).toContain('这个题库还没有可复习的问题');
   });
