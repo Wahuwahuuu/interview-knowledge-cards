@@ -29,7 +29,8 @@ const report = name => { reports.push(name); console.log('通过：' + name); };
 try {
   for (let i=0;i<100;i++) { try { if ((await fetch(origin+'/api/health')).ok) break; } catch {} if(i===99)throw new Error('测试服务未就绪：'+logs); await new Promise(resolve=>setTimeout(resolve,150)); }
   const initial = (await ok('/api/v1/library',{localAdmin:true})).value;
-  assert.deepEqual(initial.cards,legacy[0].results.map(row=>({important:false,...JSON.parse(row.payload)}))); assert.deepEqual(initial.revisions,legacy[1].results.map(row=>{const entry=JSON.parse(row.payload);return {...entry,snapshot:{important:false,...entry.snapshot}};})); assert.deepEqual(initial.sources,legacy[2].results.map(row=>JSON.parse(row.payload)));
+  const initialBackup=(await ok('/api/v1/export',{localAdmin:true})).value;
+  assert.deepEqual(initial.cards,legacy[0].results.map(row=>({important:false,...JSON.parse(row.payload)}))); assert.deepEqual(initial.revisions,[]); assert.deepEqual(initialBackup.revisions,legacy[1].results.map(row=>JSON.parse(row.payload))); assert.deepEqual(initial.sources,legacy[2].results.map(row=>JSON.parse(row.payload)));
   assert.equal(initial.cards.length,2); report('迁移保留管理员卡片、原文和历史，并兼容补齐重点属性');
   assert.equal((await req('/api/v1/library')).status,401); assert.equal((await req('/api/v1/export')).status,401); assert.equal((await req('/api/v1/library',{headers:{'x-user-id':'admin','x-role':'admin'}})).status,401); report('未登录与伪造身份无法读取私有资料');
   assert.equal((await req('/api/v1/auth/register',{method:'POST',value:{email:'admin@example.com',display_name:'冒名',password:'test-password-2026'}})).status,409);
@@ -64,13 +65,13 @@ try {
   const bHistory=(await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:b.cookie})).value; assert.equal(bHistory.length,1); assert.equal(bHistory[0].snapshot.answer_md,bCard.answer_md);
   const bSnap=(await ok('/api/v1/projects/'+bCard.project_id+'/snapshot',{cookie:b.cookie})).value; assert.equal(bSnap.owner,bEmail); assert.equal(bSnap.snapshot.cards.find(c=>c.id===bCard.id).answer_md,bCard.answer_md);
   assert.equal((await req('/api/v1/changes',{method:'POST',cookie:b.cookie,value:{expected_revision:stateB.revision,changes:{schema_version:1,cards:[{...bCard,id:'foreign-ref',project_id:'only-a-project'}]}}})).status,422); report('编辑、历史、导出、离线快照和引用均限定所属账户');
-  const beforeStateA = editA, beforeStateB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
+  const beforeStateA = (await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:a.cookie})).value, beforeStateB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
   const aStateCard = editA.cards.find(card => card.id === aCard.id);
   const stateMark = { expected_revision: editA.revision, card_revision: aStateCard.revision, patch: { mastery: 'mastered', favorite: true } };
   const stateSaved = (await ok('/api/v1/cards/'+aCard.id+'/state',{ method:'PATCH',cookie:a.cookie,value:stateMark })).value;
   editA = (await ok('/api/v1/library',{cookie:a.cookie})).value;
   assert.equal(editA.revision,stateSaved.revision); assert.equal(editA.cards.find(card=>card.id===aCard.id).mastery,'mastered');
-  assert.deepEqual(editA.revisions,beforeStateA.revisions);
+  assert.deepEqual((await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:a.cookie})).value,beforeStateA);
   assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeStateB);
   assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial);
   assert.equal((await req('/api/v1/cards/'+aCard.id+'/state',{method:'PATCH',cookie:a.cookie,value:{...stateMark,expected_revision:editA.revision,user_id:b.value.user_id}})).status,422);

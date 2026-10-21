@@ -1,4 +1,4 @@
-import { AppError, canonical, cardSchema, kinds, librarySchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
+import { AppError, canonical, cardSchema, kinds, librarySchema, revisionSchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
 import { cardState, type CardStateRequest, type CardStateResult } from '../shared/card-state';
 
 export async function updateCardState(db: D1Database, userId: string, id: string, input: CardStateRequest): Promise<CardStateResult> {
@@ -30,12 +30,37 @@ export async function updateCardState(db: D1Database, userId: string, id: string
 }
 
 export async function readLibrary(db: D1Database, userId: string): Promise<Library> {
-  const queries = [db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId), ...kinds.map(kind => db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? ORDER BY id`).bind(userId)), db.prepare('SELECT payload FROM user_card_revisions WHERE user_id=? ORDER BY card_id,revision').bind(userId)];
+  const queries = [db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId), ...kinds.map(kind => db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? ORDER BY id`).bind(userId))];
   const results = await db.batch(queries);
   const values: Record<string, unknown> = { schema_version: 1, revision: (results[0].results[0] as { revision: number })?.revision ?? 0 };
   kinds.forEach((kind, index) => { values[kind] = results[index + 1].results.map(row => JSON.parse((row as { payload: string }).payload)); });
-  values.revisions = results.at(-1)!.results.map(row => JSON.parse((row as { payload: string }).payload));
+  // Daily reads and edits do not need every historical answer in memory.
+  // commitLibrary appends new revisions without removing stored history.
+  values.revisions = [];
   return librarySchema.parse(values);
+}
+
+export async function readCardHistory(db: D1Database, userId: string, cardId: string) {
+  const result = await db.prepare('SELECT payload FROM user_card_revisions WHERE user_id=? AND card_id=? ORDER BY revision DESC').bind(userId, cardId).all<{ payload: string }>();
+  return result.results.map(row => revisionSchema.parse(JSON.parse(row.payload)));
+}
+
+/** One consistent DB snapshot, emitted without parsing and cloning all old answers. */
+export async function exportLibrary(db: D1Database, userId: string): Promise<ReadableStream<Uint8Array>> {
+  const tables = [...kinds, 'card_revisions'];
+  const results = await db.batch([db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId), ...tables.map(table => db.prepare(`SELECT payload FROM user_${table} WHERE user_id=? ORDER BY ${table === 'card_revisions' ? 'card_id,revision' : 'id'}`).bind(userId))]);
+  const revision = (results[0].results[0] as { revision: number } | undefined)?.revision ?? 0;
+  function* chunks() {
+    yield JSON.stringify({ schema_version: 1, revision, mode: 'restore', exported_at: new Date().toISOString() }).slice(0, -1);
+    for (let i = 0; i < tables.length; i++) {
+      yield `,${JSON.stringify(tables[i] === 'card_revisions' ? 'revisions' : tables[i])}:[`;
+      for (let j = 0; j < results[i + 1].results.length; j++) yield (j ? ',' : '') + (results[i + 1].results[j] as { payload: string }).payload;
+      yield ']';
+    }
+    yield '}';
+  }
+  const iterator = chunks(), encoder = new TextEncoder();
+  return new ReadableStream({ pull(controller) { const next = iterator.next(); if (next.done) controller.close(); else controller.enqueue(encoder.encode(next.value)); } });
 }
 
 function upsert(db: D1Database, userId: string, kind: Kind, value: Entity): D1PreparedStatement {
@@ -96,5 +121,5 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
     throw error;
   }
   target.revision = base.revision + 1;
-  return target;
+  return { ...target, revisions: [] };
 }

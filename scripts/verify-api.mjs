@@ -14,8 +14,9 @@ async function request(path, method = 'GET', body, agent = false) {
   const value = await response.json(); return { status: response.status, value };
 }
 async function ok(path, method = 'GET', body, agent = false) { const result = await request(path, method, body, agent); assert.equal(result.status, 200, `${path}：${result.value.error?.message ?? result.status}`); return result.value; }
-const library = () => ok('/library');
-async function apply(envelope) { const batch = await ok('/imports/preview', 'POST', envelope); return (await ok('/imports/' + batch.id + '/apply', 'POST', { expected_revision: batch.base_revision })).library; }
+// Full-history assertions use the backup endpoint; the daily library is intentionally light.
+const library = async () => { const { mode, exported_at, ...value } = await ok('/export'); return value; };
+async function apply(envelope) { const batch = await ok('/imports/preview', 'POST', envelope); await ok('/imports/' + batch.id + '/apply', 'POST', { expected_revision: batch.base_revision }); return library(); }
 const report = name => { reports.push(name); console.log('通过：' + name); };
 try {
   for (let i = 0; i < 100; i++) { try { if ((await fetch(origin + '/api/health')).ok) break; } catch {} if (i === 99) throw new Error('测试服务未就绪：' + logs); await new Promise(resolve => setTimeout(resolve, 200)); }
@@ -23,6 +24,7 @@ try {
   const seed = JSON.parse(await readFile('examples/demo-import.json', 'utf8')); seed.batch_id = 'test-seed-' + stamp;
   const staged = await ok('/agent/imports/preview', 'POST', seed, true);
   assert.equal(staged.status, 'applied'); assert.equal((await library()).cards.length, 2); report('AI 兼容提交入口直接导入，记录和独立读取均确认已保存');
+  assert.deepEqual((await ok('/library')).revisions, []); report('日常读取不加载历史答案，完整备份仍保留历史');
   assert.equal((await request('/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision }, true)).status, 403);
   assert.equal((await request('/agent/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision }, true)).status, 403); report('机器身份仍不能调用人工确认和管理接口');
   const applied = await ok('/imports/' + staged.id + '/apply', 'POST', { expected_revision: staged.base_revision });
@@ -176,7 +178,8 @@ try {
   assert.equal((await request('/projects/' + projectId, 'DELETE', { expected_revision: state.revision }, true)).status, 403);
   assert.equal((await request('/projects/missing-project', 'DELETE', { expected_revision: state.revision })).status, 404);
   assert.deepEqual(await library(), beforeProjectDelete); report('项目删除拒绝过期提交、机器身份和不存在的项目，失败不改变题库');
-  state = await ok('/projects/' + projectId, 'DELETE', { expected_revision: state.revision });
+  await ok('/projects/' + projectId, 'DELETE', { expected_revision: state.revision });
+  state = await library();
   const removedIds = new Set(beforeProjectDelete.cards.filter(card => card.project_id === projectId).map(card => card.id));
   assert.equal(removedIds.size, 2);
   assert.equal(state.revision, beforeProjectDelete.revision + 1);
@@ -184,7 +187,7 @@ try {
   assert.deepEqual(state.cards, beforeProjectDelete.cards.filter(card => !removedIds.has(card.id)));
   assert.deepEqual(state.occurrences, beforeProjectDelete.occurrences.filter(record => !removedIds.has(record.card_id)));
   assert.deepEqual(state.relations, beforeProjectDelete.relations.filter(relation => !removedIds.has(relation.from_card_id) && !removedIds.has(relation.to_card_id)));
-  assert.deepEqual(state.revisions, beforeProjectDelete.revisions.filter(entry => !removedIds.has(entry.card_id)));
+  assert.deepEqual((await library()).revisions, beforeProjectDelete.revisions.filter(entry => !removedIds.has(entry.card_id)));
   assert.deepEqual(state.sources, beforeProjectDelete.sources); assert.deepEqual(state.topics, beforeProjectDelete.topics);
   assert.deepEqual(await library(), state); report('项目及活动和归档题目一次删除，自身依赖清理，其他项目、知识点和来源原文保留');
   assert.equal((await request('/projects/' + projectId + '/snapshot')).status, 404);

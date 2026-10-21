@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { AppError, graphElements, importSchema, kinds, markdownExport, prepareImport, projectSnapshot, schemas, type Entity, type Library } from '../shared/model';
 import { assertOrigin, assertOwner, authenticate, resolveIdentity, type Env, type Identity } from './auth';
-import { commitLibrary, readLibrary, updateCardState } from './store';
+import { commitLibrary, exportLibrary, readCardHistory, readLibrary, updateCardState } from './store';
 import { cardStateRequestSchema } from '../shared/card-state';
 import accountRoutes from './accounts';
 import { removeCard } from '../shared/card-actions';
@@ -58,12 +58,12 @@ app.patch('/api/v1/cards/:id/state', async c => {
 });
 app.get('/api/v1/graph', async c => c.json({ elements: graphElements(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.query('project_id') || undefined) }));
 app.get('/api/v1/projects/:id/snapshot', async c => c.json({ downloaded_at: new Date().toISOString(), owner: c.get('identity').email, snapshot: projectSnapshot(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.param('id')) }));
-app.get('/api/v1/cards/:id/history', async c => c.json((await readLibrary(c.env.DB, c.get('identity').user_id)).revisions.filter(v => v.card_id === c.req.param('id')).sort((a, b) => b.revision - a.revision)));
+app.get('/api/v1/cards/:id/history', async c => c.json(await readCardHistory(c.env.DB, c.get('identity').user_id, c.req.param('id'))));
 app.post('/api/v1/cards/:id/restore', async c => {
   const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
   expectedRevision(input, library);
   const card = library.cards.find(v => v.id === c.req.param('id'));
-  const entry = library.revisions.find(v => v.card_id === card?.id && v.revision === input.card_revision);
+  const entry = (await readCardHistory(c.env.DB, c.get('identity').user_id, c.req.param('id'))).find(v => v.revision === input.card_revision);
   if (!card || !entry) throw new AppError(404, '卡片或历史版本不存在');
   const target = structuredClone(library);
   const restored = { ...entry.snapshot, favorite: card.favorite, important: card.important, mastery: card.mastery, revision: card.revision + 1, updated_at: new Date().toISOString() };
@@ -131,11 +131,11 @@ app.post('/api/v1/imports/:id/cancel', async c => {
   return c.json(batchView(await getBatch(c.env.DB, c.get('identity').user_id, c.req.param('id'))));
 });
 app.get('/api/v1/export', async c => {
-  const library = await readLibrary(c.env.DB, c.get('identity').user_id);
   const markdown = c.req.query('format') === 'markdown';
   c.header('Content-Disposition', `attachment; filename="interview-cards-${new Date().toISOString().slice(0, 10)}.${markdown ? 'md' : 'json'}"`);
-  if (markdown) { c.header('Content-Type', 'text/markdown; charset=utf-8'); return c.body(markdownExport(library)); }
-  return c.json({ ...library, mode: 'restore', exported_at: new Date().toISOString() });
+  if (markdown) { c.header('Content-Type', 'text/markdown; charset=utf-8'); return c.body(markdownExport(await readLibrary(c.env.DB, c.get('identity').user_id))); }
+  c.header('Content-Type', 'application/json; charset=utf-8');
+  return c.body(await exportLibrary(c.env.DB, c.get('identity').user_id));
 });
 
 app.get('/api/v1/agent/library', async c => {
