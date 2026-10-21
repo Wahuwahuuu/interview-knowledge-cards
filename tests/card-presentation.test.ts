@@ -84,14 +84,21 @@ describe('题目展示与重点兼容', () => {
     expect(html).not.toContain('`'); expect(html).not.toMatch(/<p>|<h\d|<a |<img|javascript:/);
   });
 
-  it('题目列表只显示可打开的标题，卡片视图保留其他资料并显示重点', () => {
-    const library = fixture(), props = { cards: library.cards, library, onOpen() {}, onFavorite() {}, disabled: false };
+  it('卡片和列表只显示一次独立问题，旧组合标题不重复展示', () => {
+    const library = fixture();
+    library.cards[0].title = '原来的整道题 · 当前子问题';
+    const props = { cards: library.cards, library, onOpen() {}, onFavorite() {}, disabled: false };
     const list = renderToStaticMarkup(createElement(CardCollection, { ...props, layout: 'list' }));
     expect(list).toContain('<code>EXPLAIN</code>'); expect(list).toContain('question-list-row');
     expect(list).not.toContain('02.');
     for (const text of ['待复习', '来源记录', '口述内容', '详细答案', '收藏', 'priority-badge']) expect(list).not.toContain(text);
     const cards = renderToStaticMarkup(createElement(CardCollection, { ...props, layout: 'cards' }));
     expect(cards).toContain('priority-badge'); expect(cards).toContain('重点'); expect(cards).toContain('<strong>执行计划</strong>');
+    expect(cards).not.toContain('class="card-question"');
+    expect(cards.match(/<code>EXPLAIN<\/code>/g)).toHaveLength(1);
+    expect(list.match(/<code>EXPLAIN<\/code>/g)).toHaveLength(1);
+    expect(cards).not.toContain('原来的整道题');
+    expect(list).not.toContain('原来的整道题');
     expect(cards).not.toContain('>02. 如何使用');
   });
 
