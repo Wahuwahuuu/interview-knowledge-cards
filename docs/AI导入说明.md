@@ -17,9 +17,11 @@
 | cards | id, project_id, title, question | summary_md, answer_md, topic_ids, important, favorite, mastery, archived |
 | sources | id, name, kind | date, company, job, round, notes, source_path, original_markdown |
 | occurrences | id, card_id, source_id, asked_question | original_answer_md, section, notes |
-| relations | id, from_card_id, to_card_id, kind | — |
+| relations | id, from_card_id, to_card_id, kind | order |
 
 来源 kind：`real` 真实面试、`mock` 模拟面试、`note` 问答整理。关系 kind：`followup`（起点问题的追问是终点问题）、`related`（无向关系）。掌握状态 mastery：`review` 或 `mastered`。日期为有效的 `YYYY-MM-DD` 或空字符串。
+
+主问题与每条追问各用一张卡片保存问题、口述答案和详细讲解，使用 `followup` 关系连接。`order` 为可选非负整数，决定同一主问题下追问的先后顺序；旧数据未填写时按关系 ID 稳定排序。不要把多个追问塞进主问题正文，不要为不同追问复制整份相同答案。新增追问关系不可形成循环。知识卡详情按需展开，翻卡自测按主问题分组并逐条追问；`related` 关系不改变出题顺序。
 
 `important` 是独立的重点标记，值为 `true` 或 `false`，与 `favorite` 收藏互不影响。没有填写时默认不标重点；旧题目标题开头的装饰星号会自动清理并转换为重点，明确填写的布尔值优先。标题或问题中的行内代码、加粗等 Markdown 会正常排版；SQL 中的 `SELECT *` 不会被当成装饰星号。
 

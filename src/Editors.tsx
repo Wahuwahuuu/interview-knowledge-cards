@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'rea
 import { X, Plus, Save, Link2 } from 'lucide-react';
 import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { api, newId } from './api';
+import { canLinkFollowup, orderedFollowups } from '../shared/followups';
 
 export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false, initialFocusRef, descriptionId }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean; initialFocusRef?: RefObject<HTMLElement | null>; descriptionId?: string }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
@@ -91,6 +92,32 @@ export function OccurrenceForm(props: FormProps & { card: Card }) {
     {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span /><button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存出现记录'}</button></div>
   </form>;
 }
+export function FollowupForm(props: FormProps & { card: Card }) {
+  const [mode, setMode] = useState<'new' | 'existing'>('new'), [target, setTarget] = useState('');
+  const [value, setValue] = useState(() => cardSchema.parse({ id: newId('card'), project_id: props.card.project_id, title: '追问', question: '追问', topic_ids: props.card.topic_ids }));
+  const [question, setQuestion] = useState('');
+  const { busy, error, submit } = useSubmit(props);
+  const existing = orderedFollowups(props.library, props.card.id);
+  const choices = props.library.cards.filter(card => !card.archived && !existing.some(r => r.to_card_id === card.id) && canLinkFollowup(props.library, props.card.id, card.id));
+  return <form onSubmit={event => {
+    event.preventDefault();
+    const next = { ...value, question: question.trim(), title: question.trim().split('\n')[0].slice(0, 150) };
+    if ((mode === 'new' && !next.question) || (mode === 'existing' && !target)) return;
+    void submit({ cards: mode === 'new' ? [next] : [], relations: [relationSchema.parse({ id: newId('relation'), from_card_id: props.card.id, to_card_id: mode === 'new' ? value.id : target, kind: 'followup', order: Math.max(0, ...existing.map(r => r.order ?? 0)) + 1 })] });
+  }}>
+    <p className="muted">主问题：{props.card.question.split('\n')[0]}</p>
+    <div className="segmented followup-mode" role="group" aria-label="添加追问方式"><button type="button" className={mode === 'new' ? 'selected' : ''} aria-pressed={mode === 'new'} onClick={() => setMode('new')}>新建追问</button><button type="button" className={mode === 'existing' ? 'selected' : ''} aria-pressed={mode === 'existing'} onClick={() => setMode('existing')}>关联已有知识卡</button></div>
+    {mode === 'new' ? <>
+      <Field label="追问问题"><textarea required rows={3} value={question} onChange={event => { setQuestion(event.target.value); props.onDirty(true); }} /></Field>
+      <Field label="口述答案"><textarea rows={5} value={value.summary_md} onChange={event => { setValue(v => ({ ...v, summary_md: event.target.value })); props.onDirty(true); }} /></Field>
+      <Field label="详细讲解"><textarea rows={8} value={value.answer_md} onChange={event => { setValue(v => ({ ...v, answer_md: event.target.value })); props.onDirty(true); }} /></Field>
+      <label className="priority-checkbox"><input type="checkbox" checked={value.important} onChange={event => { setValue(v => ({ ...v, important: event.target.checked })); props.onDirty(true); }} />重点</label>
+    </> : <Field label="选择追问"><select required value={target} onChange={event => { setTarget(event.target.value); props.onDirty(true); }}><option value="">选择已有知识卡</option>{choices.map(card => <option key={card.id} value={card.id}>{props.library.projects.find(project => project.id === card.project_id)?.name} · {card.title}</option>)}</select></Field>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="form-footer"><span /><button className="primary" disabled={busy || (mode === 'new' ? !question.trim() : !target)}><Save size={16} />{busy ? '保存中…' : '保存追问'}</button></div>
+  </form>;
+}
+
 export function RelationForm(props: FormProps & { card: Card }) {
   const [target, setTarget] = useState(''), [kind, setKind] = useState<'followup' | 'related'>('followup'), [direction, setDirection] = useState('out');
   const { busy, error, submit } = useSubmit(props);

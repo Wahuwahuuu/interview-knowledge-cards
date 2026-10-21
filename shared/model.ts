@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { normalizeCardPriority } from './card-priority';
+import { canLinkFollowup } from './followups';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/, 'ID 只能包含字母、数字及 . _ : -');
 const text = z.string().max(400_000);
@@ -25,7 +26,7 @@ export const occurrenceSchema = z.object({
   ...base, card_id: id, source_id: id, asked_question: text.min(1), original_answer_md: text.default(''),
   section: z.string().default(''), notes: text.default(''),
 });
-export const relationSchema = z.object({ ...base, from_card_id: id, to_card_id: id, kind: z.enum(['followup', 'related']) });
+export const relationSchema = z.object({ ...base, from_card_id: id, to_card_id: id, kind: z.enum(['followup', 'related']), order: z.number().int().nonnegative().optional() });
 export const revisionSchema = z.object({ card_id: id, revision: z.number().int().positive(), saved_at: z.string(), action: z.string(), snapshot: cardSchema });
 const arrays = {
   projects: z.array(projectSchema).max(1000).default([]), topics: z.array(topicSchema).max(2000).default([]),
@@ -140,6 +141,12 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
       if (index < 0) list.push(next); else list[index] = next;
       if (kind === 'cards') target.revisions.push({ card_id: next.id, revision: next.revision, saved_at: now, action: previous ? '编辑答案或卡片' : '新建卡片', snapshot: structuredClone(next as Card) });
     }
+  }
+  for (const relation of envelope.relations.filter(r => r.kind === 'followup')) {
+    const previous = base.relations.find(r => r.id === relation.id);
+    if (previous?.kind === 'followup' && previous.from_card_id === relation.from_card_id && previous.to_card_id === relation.to_card_id) continue;
+    const withoutThisLink = { ...target, relations: target.relations.filter(r => r.id !== relation.id) };
+    if (!canLinkFollowup(withoutThisLink, relation.from_card_id, relation.to_card_id)) throw new AppError(422, '这条追问会形成循环，请选择其他问题');
   }
   validateProjectNames(base.projects, target.projects);
   validateLibrary(target);

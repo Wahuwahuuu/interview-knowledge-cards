@@ -28,6 +28,32 @@ export function practiceCards(library: Library, projectId?: string): Card[] {
   });
 }
 
+export function practiceMainCards(library: Library, projectId?: string): Card[] {
+  const cards = practiceCards(library, projectId), ids = new Set(cards.map(card => card.id));
+  const children = new Set(library.relations.filter(r => r.kind === 'followup' && ids.has(r.from_card_id) && ids.has(r.to_card_id)).map(r => r.to_card_id));
+  const roots = cards.filter(card => !children.has(card.id));
+  const links = new Map<string, string[]>();
+  for (const relation of library.relations) if (relation.kind === 'followup' && ids.has(relation.from_card_id) && ids.has(relation.to_card_id)) {
+    if (!links.has(relation.from_card_id)) links.set(relation.from_card_id, []);
+    links.get(relation.from_card_id)!.push(relation.to_card_id);
+  }
+  const reachable = new Set<string>();
+  function visit(id: string) {
+    const pending = [id];
+    while (pending.length) {
+      const next = pending.pop()!;
+      if (reachable.has(next)) continue;
+      reachable.add(next); pending.push(...(links.get(next) ?? []));
+    }
+  }
+  for (const root of roots) visit(root.id);
+  // Keep legacy cyclic groups reachable without repeating their questions forever.
+  for (const card of cards) if (!reachable.has(card.id)) {
+    roots.push(card); visit(card.id);
+  }
+  return roots;
+}
+
 function shuffled(ids: string[], random: () => number): string[] {
   const result = [...ids];
   for (let i = result.length - 1; i > 0; i--) {

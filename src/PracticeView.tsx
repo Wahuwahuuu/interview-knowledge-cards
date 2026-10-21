@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
-import { canAdvancePractice, currentPracticeId, nextPractice, practiceCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
+import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
+import { followupCards } from '../shared/followups';
 import { InlineMarkdown, Markdown } from './Markdown';
 
 type Props = {
@@ -29,10 +30,15 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [fullAnswerOpen, setFullAnswerOpen] = useState(false);
+  const [followupIndex, setFollowupIndex] = useState(-1);
   const projectId = scope === 'project' ? selectedProjectId : undefined;
-  const cards = useMemo(() => scope === 'project' && !selectedProjectId ? [] : practiceCards(library, projectId), [library, projectId, scope, selectedProjectId]);
-  const card = session ? library.cards.find(value => value.id === currentPracticeId(session) && !value.archived) : undefined;
+  const cards = useMemo(() => scope === 'project' && !selectedProjectId ? [] : practiceMainCards(library, projectId), [library, projectId, scope, selectedProjectId]);
+  const root = session ? library.cards.find(value => value.id === currentPracticeId(session) && !value.archived) : undefined;
+  const followups = useMemo(() => root ? followupCards(library, root.id, projectId) : [], [library, root?.id, projectId]);
+  const card = followupIndex >= 0 ? followups[followupIndex] ?? root : root;
   const selectedProject = library.projects.find(value => value.id === selectedProjectId);
+
+  function showQuestion(index = -1) { setFollowupIndex(index); setRevealed(false); setFullAnswerOpen(false); }
 
   function chooseScope(next: 'all' | 'project') {
     setScope(next);
@@ -43,8 +49,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
     if (!cards.length) return;
     onScopeChange(projectId);
     setSession(startPractice(cards.map(value => value.id), mode));
-    setRevealed(false);
-    setFullAnswerOpen(false);
+    showQuestion();
   }
 
   function changeMode(next: PracticeMode) {
@@ -64,7 +69,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
         {library.projects.map(project => <option key={project.id} value={project.id}>{project.name}（{library.cards.filter(value => value.project_id === project.id && !value.archived).length} 题）</option>)}
       </select></label>}
       <div><span className="muted">出题方式</span><ModeToggle mode={mode} onChange={changeMode} /></div>
-      <div className="button-row"><span className="muted">{scope === 'all' ? '全库' : selectedProject?.name ?? '所选题库'} · {cards.length} 道题</span><button className="primary" disabled={!cards.length} onClick={start}><BookOpen size={17} />开始发问<ArrowRight size={17} /></button></div>
+      <div className="button-row"><span className="muted">{scope === 'all' ? '全库' : selectedProject?.name ?? '所选题库'} · {cards.length} 道主问题</span><button className="primary" disabled={!cards.length} onClick={start}><BookOpen size={17} />开始发问<ArrowRight size={17} /></button></div>
       {!cards.length && <p className="microcopy practice-empty">{scope === 'all' ? '题库中还没有可复习的问题，请先添加或导入问题。' : '这个题库还没有可复习的问题，可以选择其他题库。'}</p>}
     </div>
   </section>;
@@ -75,16 +80,21 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
       <ModeToggle mode={session.mode} onChange={changeMode} />
     </div>
     {card ? <>
-      <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(card.id) + 1} / ${session.ids.length} 题` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 题`}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
+      <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(root!.id) + 1} / ${session.ids.length} 组` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 组`}{followupIndex >= 0 ? ` · 追问 ${followupIndex + 1} / ${followups.length}` : ' · 主问题'}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
       <article className={'practice-card ' + (revealed ? 'revealed' : '')}>
         <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
+        {followupIndex >= 0 && <p className="practice-parent">主问题：<InlineMarkdown text={root!.question} /></p>}
         <h2><InlineMarkdown text={card.question} /></h2>
         {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
       </article>
+      {followups.length > 0 && <div className="practice-followups">
+        <div className="button-row">{followupIndex >= 0 ? <><button className="text-button" onClick={() => showQuestion()}>返回主问题</button><button className="text-button" onClick={() => showQuestion(followupIndex - 1)}><ArrowLeft size={14} />上一问</button></> : <span className="muted">这道主问题有 {followups.length} 条追问</span>}</div>
+        {followupIndex < followups.length - 1 ? <button className="secondary" onClick={() => showQuestion(followupIndex + 1)}>继续追问<ArrowRight size={16} /></button> : <span className="muted">本组追问已结束</span>}
+      </div>}
       <div className="practice-actions">
-        <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); setRevealed(false); setFullAnswerOpen(false); }}><ArrowLeft size={16} />上一题</button>
+        <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); showQuestion(); }}><ArrowLeft size={16} />上一题</button>
         <div className="button-row"><button className="secondary" aria-pressed={card.mastery === 'review'} disabled={offline || busy} onClick={() => void onMark(card, 'review')}>再复习一下</button><button className="primary" aria-pressed={card.mastery === 'mastered'} disabled={offline || busy} onClick={() => void onMark(card, 'mastered')}><Check size={16} />已掌握</button></div>
-        <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value) : null); setRevealed(false); setFullAnswerOpen(false); }}>下一题<ArrowRight size={16} /></button>
+        <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value) : null); showQuestion(); }}>下一题<ArrowRight size={16} /></button>
       </div>
       {offline && <p className="microcopy centered">离线可阅读和翻卡；掌握状态需要联网保存。</p>}
     </> : <div className="empty-state"><BookOpen size={30} /><h3>这道题已不在复习范围内</h3><button className="secondary" onClick={() => setSession(null)}>重新选择复习范围</button></div>}

@@ -1,0 +1,15 @@
+.followup-mode{margin:18px 0}
+.followup-item{border-bottom:1px solid var(--border)}
+.followup-item:first-of-type{border-top:1px solid var(--border)}
+.followup-item>summary{cursor:pointer;padding:17px 0;line-height:1.8;font-size:14px;list-style:disclosure-closed;display:list-item;margin-left:18px}
+.followup-item[open]>summary{list-style:disclosure-open}
+.followup-item>summary>.status{margin-left:12px;vertical-align:middle}
+.followup-item>summary:focus-visible{outline:2px solid #77947a;outline-offset:4px}
+.followup-content{padding:0 0 20px 18px;overflow-wrap:anywhere}
+.followup-content>h4{margin:4px 0 10px}
+.followup-content>.button-row{margin-top:16px;gap:10px 20px}
+.practice-followups{max-width:790px;margin:16px auto 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.practice-followups .muted,.followup-content>.muted{color:#63725f}
+.practice-progress{flex-wrap:wrap;gap:10px}
+.practice-parent{font-size:13px;color:#63725f;margin:0 0 18px;line-height:1.8}
+@media(max-width:600px){.followup-content{padding-left:0}.followup-item>summary{padding:14px 0}.followup-content>.button-row{gap:8px 16px}.practice-followups .secondary{min-height:42px}.practice-followups .text-button{min-height:36px}}
