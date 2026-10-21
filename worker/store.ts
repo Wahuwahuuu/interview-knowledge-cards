@@ -1,5 +1,32 @@
-import { AppError, canonical, cardSchema, kinds, librarySchema, revisionSchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
+import { AppError, canonical, cardSchema, kinds, librarySchema, projectSchema, revisionSchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
 import { cardState, type CardStateRequest, type CardStateResult } from '../shared/card-state';
+import { applyProjectOrder, type ProjectOrderRequest, type ProjectOrderResult } from '../shared/project-order';
+
+export async function updateProjectOrder(db: D1Database, userId: string, input: ProjectOrderRequest): Promise<ProjectOrderResult> {
+  const [meta, records] = await db.batch([
+    db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId),
+    db.prepare('SELECT payload FROM user_projects WHERE user_id=? ORDER BY id').bind(userId),
+  ]);
+  const revision = (meta.results[0] as { revision: number } | undefined)?.revision ?? 0;
+  if (input.expected_revision !== revision) throw new AppError(409, '题库已更新，请刷新后重新调整顺序', 'REVISION_CONFLICT');
+  const previous = records.results.map(row => projectSchema.parse(JSON.parse((row as { payload: string }).payload)));
+  const projects = applyProjectOrder(previous, input.project_ids);
+  const changed = projects.filter(project => previous.find(old => old.id === project.id)?.revision !== project.revision);
+  if (!changed.length) return { revision, projects };
+  const guard = crypto.randomUUID();
+  try {
+    await db.batch([
+      db.prepare('INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT revision FROM user_library_meta WHERE user_id=?)=? THEN 1 ELSE 0 END)').bind(userId, guard, userId, revision),
+      ...changed.map(project => upsert(db, userId, 'projects', project)),
+      db.prepare('UPDATE user_library_meta SET revision=revision+1 WHERE user_id=?').bind(userId),
+      db.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(userId, guard),
+    ]);
+  } catch (error) {
+    if (String(error).includes('ok=1') || String(error).includes('mutation_guard')) throw new AppError(409, '题库刚有更新，请刷新后重新调整顺序', 'REVISION_CONFLICT');
+    throw error;
+  }
+  return { revision: revision + 1, projects };
+}
 
 export async function updateCardState(db: D1Database, userId: string, id: string, input: CardStateRequest): Promise<CardStateResult> {
   const [meta, records] = await db.batch([

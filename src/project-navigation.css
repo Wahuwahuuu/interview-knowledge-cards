@@ -1,0 +1,18 @@
+.project-nav-row{position:relative;display:flex;align-items:center;min-width:0;border-radius:8px;color:#65765c}
+.project-nav-row.active{background:#dce6d2;color:#345032}
+.project-nav-row:hover{background:#e0e9d8}
+.project-nav-open{display:flex;align-items:center;gap:10px;min-width:0;flex:1;padding:12px 3px 12px 13px;text-align:left;font-size:12px;font-weight:500;min-height:43px;border-radius:8px}
+.project-nav-open .nav-count{padding-left:3px}
+.project-drag-handle{display:grid;place-items:center;flex:none;width:24px;min-height:36px;border-radius:5px;color:#6c7e60;cursor:grab;touch-action:none;user-select:none}
+.project-drag-handle:hover,.project-drag-handle:focus-visible{color:var(--green);background:#d3dfc8}
+.project-drag-handle:active{cursor:grabbing}
+.project-drag-handle[aria-disabled=true]{cursor:default;opacity:.35}
+.project-nav-row.is-dragging{opacity:.55}
+.project-nav-row.drop-before::before,.project-nav-row.drop-after::after{content:"";position:absolute;left:12px;right:6px;height:2px;background:var(--green);border-radius:2px;pointer-events:none}
+.project-nav-row.drop-before::before{top:-3px}
+.project-nav-row.drop-after::after{bottom:-3px}
+.projects-heading{margin-bottom:24px}
+.projects-heading h1{font-size:26px}
+@media(max-width:1100px) and (min-width:721px){.project-nav-open{padding-left:8px;gap:7px;font-size:11px}.project-drag-handle{width:21px}}
+@media(pointer:coarse){.project-drag-handle{width:30px;min-height:44px}}
+@media(forced-colors:active){.project-nav-row.drop-before::before,.project-nav-row.drop-after::after{background:Highlight}}

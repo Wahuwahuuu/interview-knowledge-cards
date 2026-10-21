@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { ArrowDownToLine, ArrowRight, BookOpen, ChevronRight, Copy, Edit3, Flag, Folder, GitBranch, GraduationCap, LayoutGrid, Link2, LogOut, Menu, Plus, RefreshCw, Search, Settings, Settings2, Star, Trash2, Upload, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, BookOpen, ChevronRight, Copy, Edit3, Flag, Folder, GitBranch, GraduationCap, House, LayoutGrid, Link2, LogOut, Menu, Plus, RefreshCw, Search, Settings, Settings2, Star, Trash2, Upload, WifiOff, X } from 'lucide-react';
 import { type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { ApiError, api, downloadFile, loadLibrary } from './api';
 import { blankRecord, CardForm, FollowupForm, Modal, OccurrenceForm, RecordForm, RelationForm } from './Editors';
@@ -19,9 +19,11 @@ import { ContextMenu, MoreActionsButton, type ContextMenuItem } from './ContextM
 import { projectExport } from '../shared/project-actions';
 import { useCardStateUpdates } from './useCardStateUpdates';
 import type { CardStatePatch } from '../shared/card-state';
+import { orderedProjects, type ProjectOrderResult } from '../shared/project-order';
+import { ProjectNavigation } from './ProjectNavigation';
 import { filterQuestionGroups, questionGroups } from '../shared/question-groups';
 
-type Page = 'home' | 'project' | 'graph' | 'practice' | 'manage';
+type Page = 'home' | 'projects' | 'project' | 'graph' | 'practice' | 'manage';
 type Editor = { kind: Kind | 'appearance' | 'link' | 'followup'; value: Entity; expectedRevision: number };
 type MenuSelection = { kind: 'card' | 'project'; id: string; x: number; y: number; trigger: HTMLElement };
 type PendingDeletion = { kind: 'card' | 'project' | 'relation' | 'download'; id: string; name: string; expectedRevision: number };
@@ -44,6 +46,8 @@ export default function App() {
   const [manageTab, setManageTab] = useState('imports'), [practiceEntryId, setPracticeEntryId] = useState<string | undefined>(), [practiceKey, setPracticeKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<MenuSelection | null>(null);
+  const [projectOrder, setProjectOrder] = useState<string[] | null>(null);
+  const projectOrderBusy = useRef(false);
   const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion | null>(null), [deleteError, setDeleteError] = useState('');
   const deleteButton = useRef<HTMLButtonElement>(null);
   const deleteOrigin = useRef<HTMLElement | null>(null), deletionBusy = useRef(false);
@@ -51,14 +55,23 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null), dirtyRef = useRef(dirty); dirtyRef.current = dirty;
   const refreshSequence = useRef(0);
   const cardSaves = useCardStateUpdates({ library: confirmedLibrary, owner: account?.user_id, getContext: () => refreshSequence.current, onLibrary: setLibrary, onError: error => { void handleError(error); } });
-  const library = cardSaves.library;
+  const library = useMemo(() => {
+    if (!cardSaves.library) return null;
+    const projects = orderedProjects(cardSaves.library.projects);
+    if (projectOrder) {
+      const positions = new Map(projectOrder.map((id, index) => [id, index]));
+      projects.sort((a, b) => (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity));
+    }
+    return { ...cardSaves.library, projects };
+  }, [cardSaves.library, projectOrder]);
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 5500); }
   async function handleError(error: unknown) {
-    if (error instanceof ApiError && [401, 403].includes(error.status)) { refreshSequence.current++; cardSaves.queue.reset(); await clearPrivateData().catch(() => undefined); setLoading(false); setAuthError(true); setLibrary(null); setAccount(null); setDownloads([]); setEditor(null); setDirty(false); }
+    if (error instanceof ApiError && [401, 403].includes(error.status)) { refreshSequence.current++; cardSaves.queue.reset(); projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); await clearPrivateData().catch(() => undefined); setLoading(false); setAuthError(true); setLibrary(null); setAccount(null); setDownloads([]); setEditor(null); setDirty(false); }
     notify(error instanceof Error ? error.message : '操作未完成');
   }
   async function refreshDownloads() { try { setDownloads(await readDownloads()); } catch { notify('浏览器暂时无法保存离线内容，在线复习仍可使用'); } }
   async function refresh() {
+    if (projectOrderBusy.current) { notify('项目顺序正在保存'); return; }
     if (cardSaves.queue.hasPending) { notify('复习标记正在保存，可以继续切题'); return; }
     const sequence = ++refreshSequence.current;
     setLoading(true); setFatal('');
@@ -85,13 +98,13 @@ export default function App() {
     void refresh();
     const disconnect = () => { setOffline(true); notify('已离线；可以阅读和翻卡，修改需要联网'); };
     const connect = () => { setOffline(false); if (!dirtyRef.current) void refresh(); else notify('网络已恢复，当前编辑内容保留；保存前请注意题库版本'); };
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyRef.current || cardSaves.queue.hasPending) { event.preventDefault(); event.returnValue = ''; } };
-    const accountChanged = (event: StorageEvent) => { if (event.key === 'interview-account-change' || event.key === 'interview-pending-logout') { cardSaves.queue.reset(); setLibrary(null); setAccount(null); setEditor(null); setDirty(false); dirtyRef.current=false; setDetailId(undefined); setProjectId(undefined); setPage('home'); void refresh(); } };
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyRef.current || cardSaves.queue.hasPending || projectOrderBusy.current) { event.preventDefault(); event.returnValue = ''; } };
+    const accountChanged = (event: StorageEvent) => { if (event.key === 'interview-account-change' || event.key === 'interview-pending-logout') { projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); cardSaves.queue.reset(); setLibrary(null); setAccount(null); setEditor(null); setDirty(false); dirtyRef.current=false; setDetailId(undefined); setProjectId(undefined); setPage('home'); void refresh(); } };
     window.addEventListener('offline', disconnect); window.addEventListener('online', connect); window.addEventListener('beforeunload', beforeUnload);
     window.addEventListener('storage', accountChanged);
     return () => { window.removeEventListener('offline', disconnect); window.removeEventListener('online', connect); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('storage', accountChanged); };
   }, []);
-  useEffect(() => { setSettingsOpen(false); }, [account?.user_id]);
+  useEffect(() => { setSettingsOpen(false); setProjectOrder(null); }, [account?.user_id]);
   const project = library?.projects.find(p => p.id === projectId);
   const activeCards = useMemo(() => library?.cards.filter(c => !c.archived) ?? [], [library]);
   const activeGroups = useMemo(() => library ? questionGroups(library) : [], [library]);
@@ -111,6 +124,25 @@ export default function App() {
   function practice(initialProjectId?: string) { if (!discard(() => practice(initialProjectId))) return; setPracticeEntryId(initialProjectId); setProjectId(initialProjectId); setPracticeKey(key => key + 1); setDetailId(undefined); setSourceId(undefined); setPage('practice'); setSidebar(false); window.scrollTo({ top: 0 }); }
   async function action(task: () => Promise<void>, message = '正在保存…') { if (offline) { notify('这个操作需要联网'); return; } if (cardSaves.queue.hasPending) { notify('复习标记正在保存，请稍后操作'); return; } setOperationBusy(true); setOperationMessage(message); try { await task(); } catch (error) { await handleError(error); } finally { setOperationBusy(false); setOperationMessage(''); } }
   async function updateCard(card: Card, patch: CardStatePatch) { if (!library || operationBusy || loading || cardSaves.retrying) return; if (offline) { notify('标记需要联网保存'); return; } cardSaves.queue.enqueue(card.id, patch); }
+  async function reorderProjects(ids: string[]) {
+    if (!library || offline || loading || operationBusy || projectOrderBusy.current || cardSaves.queue.hasPending) return;
+    const sequence = refreshSequence.current;
+    projectOrderBusy.current = true; setProjectOrder(ids); setContextMenu(null); setOperationBusy(true); setOperationMessage('正在保存项目顺序…');
+    try {
+      const result = await api<ProjectOrderResult>('/projects/order', { method: 'PUT', body: JSON.stringify({ expected_revision: library.revision, project_ids: ids }) });
+      if (sequence !== refreshSequence.current) return;
+      setLibrary(current => current ? { ...current, revision: result.revision, projects: result.projects } : current);
+      notify('项目顺序已保存');
+    } catch (error) {
+      if (sequence !== refreshSequence.current) return;
+      if (error instanceof ApiError && error.status === 409) {
+        try { const next = await loadLibrary(); if (sequence === refreshSequence.current) setLibrary(next); } catch { /* Keep the confirmed order if reloading is unavailable. */ }
+      }
+      await handleError(error instanceof ApiError ? error : new Error('项目顺序未确认保存，请联网后重试'));
+    } finally {
+      if (sequence === refreshSequence.current) { projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); }
+    }
+  }
   function showContextMenu(event: MouseEvent<HTMLElement>, kind: MenuSelection['kind'], id: string) {
     event.preventDefault(); event.stopPropagation();
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -148,7 +180,7 @@ export default function App() {
         if (sequence !== refreshSequence.current) return;
         setLibrary(next); setPendingDeletion(null);
         if (detailId && !next.cards.some(card => card.id === detailId)) setDetailId(undefined);
-        if (target.kind === 'project' && projectId === target.id) { setProjectId(undefined); setPracticeEntryId(undefined); setPage('home'); setSidebar(false); }
+        if (target.kind === 'project' && projectId === target.id) { setProjectId(undefined); setPracticeEntryId(undefined); setPage('projects'); setSidebar(false); }
         try {
           if (target.kind === 'card') setDownloads(await removeCardFromDownloads(owner, target.id));
           else if (target.kind === 'project') setDownloads(await removeProjectFromDownloads(owner, target.id));
@@ -229,14 +261,15 @@ export default function App() {
   return <div className="app-shell">
     <aside className={'sidebar ' + (sidebar ? 'open' : '')}>
       <button className="brand" onClick={() => navigate('home', undefined)}><img src="/icon.svg" alt="" /><span>面试知识卡<small>把经验，变成自己的答案</small></span></button>
-      <div className="side-section"><span className="side-label">我的书架</span><nav><button className={page === 'home' ? 'active' : ''} onClick={() => navigate('home', undefined)}><LayoutGrid size={18} />全部项目<span className="nav-count">{library?.projects.length ?? 0}</span></button><button className={page === 'practice' ? 'active' : ''} onClick={() => practice()}><GraduationCap size={18} />翻卡自测</button><button className={page === 'graph' ? 'active' : ''} onClick={() => navigate('graph', undefined)}><GitBranch size={18} />知识图谱</button></nav></div>
-      <div className="side-section projects-nav"><div className="side-label"><span>项目</span><button aria-label="新增项目" className="icon-button" disabled={buttonsDisabled || !library} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} /></button></div><nav>{library?.projects.map((p, i) => <button className={projectId === p.id && page !== 'home' ? 'active' : ''} key={p.id} onContextMenu={event => showContextMenu(event, 'project', p.id)} onClick={() => openProject(p.id)}><span className={'project-symbol symbol-' + i % 4}><Folder size={15} /></span><span className="nav-project-name">{p.name}</span><span className="nav-count">{activeMainCards.filter(c => c.project_id === p.id).length}</span></button>)}</nav>{!library?.projects.length && <p className="microcopy">先建立项目，再慢慢积累问题。</p>}</div>
+      <div className="side-section"><span className="side-label">我的书架</span><nav><button className={page === 'home' ? 'active' : ''} onClick={() => navigate('home', undefined)}><House size={18} />首页</button><button className={page === 'projects' ? 'active' : ''} onClick={() => navigate('projects', undefined)}><LayoutGrid size={18} />全部项目<span className="nav-count">{library?.projects.length ?? 0}</span></button><button className={page === 'practice' ? 'active' : ''} onClick={() => practice()}><GraduationCap size={18} />翻卡自测</button><button className={page === 'graph' ? 'active' : ''} onClick={() => navigate('graph', undefined)}><GitBranch size={18} />知识图谱</button></nav></div>
+      <div className="side-section projects-nav"><div className="side-label"><span>项目</span><button aria-label="新增项目" className="icon-button" disabled={buttonsDisabled || !library} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} /></button></div><ProjectNavigation projects={library?.projects ?? []} selectedId={page === 'project' || page === 'graph' || page === 'practice' ? projectId : undefined} counts={Object.fromEntries((library?.projects ?? []).map(p => [p.id, activeMainCards.filter(c => c.project_id === p.id).length]))} disabled={buttonsDisabled || Boolean(editor)} onOpen={openProject} onMenu={(event, id) => showContextMenu(event, 'project', id)} onReorder={ids => void reorderProjects(ids)} />{!library?.projects.length && <p className="microcopy">先建立项目，再慢慢积累问题。</p>}</div>
       <div className="sidebar-bottom"><button className={page === 'manage' ? 'active' : ''} onClick={() => navigate('manage', undefined)}><Settings2 size={17} />维护与备份</button><div className="account"><span className="avatar">{account?.display_name?.slice(0,1) || '我'}</span><div><strong>{account?.display_name || '我的私人题库'}</strong><small>{offline ? '离线复习中' : local ? '本地预览' : '私人账户'}</small></div><button className="icon-button" aria-label="打开设置" aria-haspopup="dialog" disabled={!account || loading || operationBusy || cardSaves.saving} onClick={openSettings}><Settings size={17} /></button><button className="icon-button" aria-label="退出登录并清除离线内容" disabled={loading || operationBusy || cardSaves.saving} onClick={() => void logout()}><LogOut size={16} /></button></div></div>
     </aside>
     {sidebar && <button className="sidebar-scrim" aria-label="收起导航" onClick={() => setSidebar(false)} />}
     <div className="main-shell"><header className="topbar"><nav className="breadcrumb" aria-label="面包屑导航">
       <button className="icon-button mobile-menu" aria-label="打开项目导航" onClick={() => setSidebar(true)}><Menu size={21} /></button>
-      <button aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigate('home', undefined)}>我的书架</button>
+      <button aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigate('home', undefined)}>首页</button>
+      {(page === 'projects' || page === 'project' && projectId) && <><ChevronRight size={14} /><button aria-current={page === 'projects' ? 'page' : undefined} onClick={() => navigate('projects', undefined)}>全部项目</button></>}
       {page === 'practice' && <>{project && <><ChevronRight size={14} /><button onClick={() => openProject(project.id)}>{project.name}</button></>}<ChevronRight size={14} /><button aria-current="page" onClick={() => practice()}>翻卡自测</button></>}
       {(page === 'project' || page === 'graph') && <><ChevronRight size={14} /><button aria-current={page === 'project' ? 'page' : undefined} onClick={() => openProject(projectId)}>{project?.name ?? '所有知识卡'}</button>{page === 'graph' && <><ChevronRight size={14} /><button aria-current="page" onClick={() => navigate('graph', projectId)}>知识图谱</button></>}</>}
       {page === 'manage' && <><ChevronRight size={14} /><button aria-current="page" onClick={() => navigate('manage', undefined)}>维护与备份</button></>}
@@ -251,7 +284,9 @@ export default function App() {
           {page === 'home' && <>
             <section className="welcome"><div className="welcome-copy"><span className="eyebrow"><i />我的私人知识库</span><h1>把回答，<br /><em>记得更清楚。</em></h1><p>把每一次追问留下来。按项目整理，<br className="desktop-break" />沿着知识点复习，在下一次面试中从容表达。</p><button className="primary" disabled={!activeCards.length} onClick={() => practice()}><BookOpen size={17} />开始一轮复习<ArrowRight size={17} /></button></div><div className="welcome-art" aria-hidden="true"><div className="art-card art-back"><span>一点一点，积累起来</span></div><div className="art-card art-front"><div className="art-card-top"><span>我的面试笔记</span><Star size={16} /></div><div className="art-lines"><i /><i /><i /></div><div className="art-note"><GitBranch size={21} /><span>问题 · 答案 · 关联</span></div><span className="art-tab">随时翻一张</span></div><div className="art-spark spark-one">✦</div><div className="art-spark spark-two">✦</div></div></section>
             <section className="stats"><div><span>主问题</span><strong>{activeMainCards.length.toString().padStart(2, '0')}<small>道主问题</small></strong></div><div><span>项目书架</span><strong>{library.projects.length.toString().padStart(2, '0')}<small>个项目</small></strong></div><div><span>已掌握</span><strong>{mastered.toString().padStart(2, '0')}<small>继续积累</small></strong></div><div><span>知识连接</span><strong>{library.topics.length.toString().padStart(2, '0')}<small>个知识点</small></strong></div></section>
-            <div className="section-title space-above"><div><h2>我的项目</h2><p>从熟悉的项目开始，找回每一道题的上下文。</p></div><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} />新增项目</button></div>
+            </>}
+          {page === 'projects' && <>
+            <div className="section-title projects-heading"><div><h1>我的项目</h1><p>从熟悉的项目开始，找回每一道题的上下文。</p></div><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} />新增项目</button></div>
             <div className="project-grid">{library.projects.map((p, i) => { const cards = activeMainCards.filter(c => c.project_id === p.id), known = cards.filter(c => c.mastery === 'mastered').length; return <div className="project-tile-wrap" key={p.id} onContextMenu={event => showContextMenu(event, 'project', p.id)}><button className="project-tile" onClick={() => { setSearch(''); setTopic(''); setFavorites(false); setImportantOnly(false); setStatus('all'); navigate('project', p.id); }}><div className="project-tile-top"><span className={'project-icon symbol-' + i % 4}><Folder size={24} /></span><span className="pill">{cards.length} 道主问题</span></div><h3>{p.name}</h3><p>{p.description || '为这个项目积累问答、来源和知识点。'}</p><div className="project-progress"><span>已掌握 {known} / {cards.length}</span><span>打开项目 <ArrowRight size={15} /></span></div><div className="progress-track"><i style={{ width: `${cards.length ? known / cards.length * 100 : 0}%` }} /></div></button><MoreActionsButton label={`项目操作：${p.name}`} expanded={contextMenu?.kind === 'project' && contextMenu.id === p.id} onOpen={event => showContextMenu(event, 'project', p.id)} /></div>; })}{!library.projects.length && <div className="empty-library"><BookOpen size={30} /><h3>书架准备好了</h3><p>创建自己的第一个项目，或导入整理好的问答。</p><button className="primary" onClick={() => { setManageTab('imports'); navigate('manage', undefined); }}><Upload size={16} />打开导入入口</button></div>}</div>
             <div className="quiet-footer"><GitBranch size={16} /><span>每次补充一个问题，知识之间就多一条连接。</span></div>
           </>}

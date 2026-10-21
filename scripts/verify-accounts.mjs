@@ -65,6 +65,13 @@ try {
   const bHistory=(await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:b.cookie})).value; assert.equal(bHistory.length,1); assert.equal(bHistory[0].snapshot.answer_md,bCard.answer_md);
   const bSnap=(await ok('/api/v1/projects/'+bCard.project_id+'/snapshot',{cookie:b.cookie})).value; assert.equal(bSnap.owner,bEmail); assert.equal(bSnap.snapshot.cards.find(c=>c.id===bCard.id).answer_md,bCard.answer_md);
   assert.equal((await req('/api/v1/changes',{method:'POST',cookie:b.cookie,value:{expected_revision:stateB.revision,changes:{schema_version:1,cards:[{...bCard,id:'foreign-ref',project_id:'only-a-project'}]}}})).status,422); report('编辑、历史、导出、离线快照和引用均限定所属账户');
+  const beforeOrderB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
+  const orderA = (await ok('/api/v1/projects/order',{method:'PUT',cookie:a.cookie,value:{expected_revision:editA.revision,project_ids:editA.projects.map(p=>p.id).reverse(),user_id:b.value.user_id}})).value;
+  editA = { ...editA, revision: orderA.revision, projects: orderA.projects };
+  assert.deepEqual((await ok('/api/v1/library',{cookie:b.cookie})).value,beforeOrderB);
+  assert.deepEqual((await ok('/api/v1/library',{localAdmin:true})).value,initial);
+  assert.equal((await req('/api/v1/projects/order',{method:'PUT',value:{expected_revision:editA.revision,project_ids:[]}})).status,401);
+  report('同 ID 项目排序只保存到当前账号，不能通过 user_id 修改他人顺序');
   const beforeStateA = (await ok('/api/v1/cards/'+aCard.id+'/history',{cookie:a.cookie})).value, beforeStateB = (await ok('/api/v1/library',{cookie:b.cookie})).value;
   const aStateCard = editA.cards.find(card => card.id === aCard.id);
   const stateMark = { expected_revision: editA.revision, card_revision: aStateCard.revision, patch: { mastery: 'mastered', favorite: true } };

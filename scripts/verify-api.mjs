@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { verifyDirectImport } from './verify-direct-import.mjs';
+import { verifyProjectOrder } from './verify-project-order.mjs';
 const origin = 'http://127.0.0.1:8788', reports = [], stamp = crypto.randomUUID();
 const env = { ...process.env, WRANGLER_SEND_METRICS: 'false', CLOUDFLARE_CF_FETCH_ENABLED: 'false' };
 const migration = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'd1', 'migrations', 'apply', 'DB', '--local', '--config', 'wrangler.test.jsonc'], { encoding: 'utf8', env, windowsHide: true });
@@ -83,6 +84,7 @@ try {
   state = await ok('/cards/' + prioritySaved.id, 'PUT', { expected_revision: state.revision, value: { ...prioritySaved, important: false } });
   assert.equal((await library()).cards.find(c => c.id === prioritySaved.id).important, false); report('旧星号标题转换为重点且可取消，重读后不会恢复星号或重点');
   const snapshot = await ok('/projects/demo-backend/snapshot'); assert.equal(snapshot.snapshot.cards.length, 2); report('同名问题不合并，图谱和离线快照按项目隔离');
+  await verifyProjectOrder({ request, ok, library, report }); state = await library();
   const backup = await ok('/export'); const savedCard = backup.cards.find(c => c.id === card.id);
   state = await ok('/cards/' + card.id, 'PUT', { expected_revision: state.revision, value: { ...savedCard, answer_md: '备份后修改' } });
   state = await apply({ ...backup, batch_id: 'restore-' + stamp });

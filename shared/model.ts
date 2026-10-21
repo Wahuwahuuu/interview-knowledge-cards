@@ -5,7 +5,7 @@ import { canLinkFollowup } from './followups';
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/, 'ID 只能包含字母、数字及 . _ : -');
 const text = z.string().max(400_000);
 const base = { id, revision: z.number().int().positive().default(1), updated_at: z.string().default('') };
-export const projectSchema = z.object({ ...base, name: z.string().trim().min(1).max(100), description: text.default('') });
+export const projectSchema = z.object({ ...base, name: z.string().trim().min(1).max(100), description: text.default(''), sort_order: z.number().int().nonnegative().optional() });
 export const topicSchema = z.object({ ...base, name: z.string().trim().min(1).max(100) });
 export const evidenceSchema = z.object({ label: z.string().min(1), path: z.string().default(''), line: z.number().int().positive().optional(), url: z.string().default('') });
 export const cardSchema = z.preprocess(normalizeCardPriority, z.object({
@@ -128,9 +128,16 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
   const target = structuredClone(base);
   for (const kind of kinds) {
     const list = target[kind] as Entity[];
-    for (const proposed of envelope[kind]) {
+    for (const input of envelope[kind]) {
+      let proposed = input;
       const index = list.findIndex(v => v.id === proposed.id);
       const previous = index >= 0 ? list[index] : undefined;
+      if (kind === 'projects' && (proposed as Project).sort_order === undefined) {
+        const savedOrder = (previous as Project | undefined)?.sort_order;
+        const orders = target.projects.flatMap(project => project.sort_order === undefined ? [] : [project.sort_order]);
+        if (savedOrder !== undefined) proposed = { ...proposed, sort_order: savedOrder } as Project;
+        else if (!previous && orders.length) proposed = { ...proposed, sort_order: Math.max(...orders) + 1 } as Project;
+      }
       if (previous && kind === 'sources' && (previous as Source).original_markdown !== (proposed as Source).original_markdown) throw new AppError(422, '已有来源的原始记录不能被覆盖');
       if (previous && kind === 'occurrences') {
         const old = previous as Occurrence, next = proposed as Occurrence;
