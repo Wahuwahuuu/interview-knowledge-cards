@@ -1,0 +1,13 @@
+.practice-card-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.practice-edit-button {
+  min-height: 36px;
+  padding: 6px 8px;
+  white-space: nowrap;
+}

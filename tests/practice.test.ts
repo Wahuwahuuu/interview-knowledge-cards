@@ -29,7 +29,7 @@ describe('复习范围与稳定顺序', () => {
     const library = emptyLibrary();
     library.cards = [{ ...card('q1', '测试题'), summary_md: 'PRIVATE_OUTLINE', answer_md: 'PRIVATE_ANSWER' }];
     library.projects = [{ id: 'redis', name: 'Redis', revision: 1, updated_at: '', description: '' }];
-    const html = renderToStaticMarkup(createElement(PracticeView, { library, offline: false, busy: false, onMark: async () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
+    const html = renderToStaticMarkup(createElement(PracticeView, { library, offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
     expect(html).toContain('全库发问');
     expect(html).toContain('按题库发问');
     expect(html).toContain('顺序出题');
@@ -44,7 +44,7 @@ describe('复习范围与稳定顺序', () => {
   it('从项目进入时预选题库，空题库禁用开始', () => {
     const library = emptyLibrary();
     library.projects = [{ id: 'mysql', name: 'MySQL', revision: 1, updated_at: '', description: '' }];
-    const html = renderToStaticMarkup(createElement(PracticeView, { library, initialProjectId: 'mysql', offline: false, busy: false, onMark: async () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
+    const html = renderToStaticMarkup(createElement(PracticeView, { library, initialProjectId: 'mysql', offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
     expect(html).toContain('<option value="mysql" selected="">MySQL（0 道主问题）</option>');
     expect(html).toMatch(/<button class="primary" disabled="">/);
     expect(html).toContain('这个题库还没有可复习的问题');

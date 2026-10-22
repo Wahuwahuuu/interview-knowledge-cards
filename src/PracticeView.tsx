@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Edit3, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
 import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
 import { followupCards } from '../shared/followups';
 import { InlineMarkdown, Markdown } from './Markdown';
+import './practice-edit.css';
 
 type Props = {
   library: Library;
   initialProjectId?: string;
   offline: boolean;
   busy: boolean;
+  editDisabled: boolean;
   saveStatus?: Record<string, 'saving' | 'error'>;
   onMark: (card: Card, mastery: Card['mastery']) => Promise<void>;
+  onEdit: (card: Card) => void;
   onScopeChange: (projectId: string | undefined) => void;
   onOpenProject: (projectId: string) => void;
 };
@@ -23,7 +26,7 @@ function ModeToggle({ mode, onChange }: { mode: PracticeMode; onChange: (mode: P
   </div>;
 }
 
-export function PracticeView({ library, initialProjectId, offline, busy, saveStatus, onMark, onScopeChange, onOpenProject }: Props) {
+export function PracticeView({ library, initialProjectId, offline, busy, editDisabled, saveStatus, onMark, onEdit, onScopeChange, onOpenProject }: Props) {
   const [scope, setScope] = useState<'all' | 'project'>(initialProjectId ? 'project' : 'all');
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? library.projects[0]?.id ?? '');
   const [mode, setMode] = useState<PracticeMode>('sequential');
@@ -82,7 +85,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, saveSta
     {card ? <>
       <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(root!.id) + 1} / ${session.ids.length} 组` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 组`}{followupIndex >= 0 ? ` · 追问 ${followupIndex + 1} / ${followups.length}` : ' · 主问题'}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
       <article className={'practice-card ' + (revealed ? 'revealed' : '')}>
-        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span> <span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></div>
+        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span><div className="practice-card-tools"><span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span><button type="button" className="text-button practice-edit-button" disabled={editDisabled} onClick={() => onEdit(card)}><Edit3 size={15} />编辑</button></div></div>
         {followupIndex >= 0 && <p className="practice-parent">主问题：<InlineMarkdown text={root!.question} /></p>}
         <h2><InlineMarkdown text={card.question} /></h2>
         {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
