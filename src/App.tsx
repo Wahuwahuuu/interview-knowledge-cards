@@ -24,6 +24,8 @@ import type { CardStatePatch } from '../shared/card-state';
 import { orderedProjects, type ProjectOrderResult } from '../shared/project-order';
 import { ProjectNavigation } from './ProjectNavigation';
 import { filterQuestionGroups, questionGroups } from '../shared/question-groups';
+import { editableOffline, runtimeMode } from './local-replica';
+import { SyncBadge } from './SyncView';
 
 type Page = 'home' | 'projects' | 'project' | 'graph' | 'practice' | 'manage';
 type Editor = { kind: Kind | 'appearance' | 'link' | 'followup'; value: Entity; expectedRevision: number };
@@ -38,7 +40,8 @@ export default function App() {
   const [confirmedLibrary, setLibrary] = useState<Library | null>(null), [owner, setOwner] = useState(''), [local, setLocal] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [page, setPage] = useState<Page>('home'), [projectId, setProjectId] = useState<string | undefined>();
-  const [offline, setOffline] = useState(!navigator.onLine), [loading, setLoading] = useState(true), [authError, setAuthError] = useState(false), [fatal, setFatal] = useState('');
+  const [networkOffline, setOffline] = useState(!navigator.onLine), [loading, setLoading] = useState(true), [authError, setAuthError] = useState(false), [fatal, setFatal] = useState('');
+  const offline = networkOffline && runtimeMode() === 'cloud';
   const [search, setSearch] = useState(''), [topic, setTopic] = useState(''), [status, setStatus] = useState('all'), [favorites, setFavorites] = useState(false), [archived, setArchived] = useState(false);
   const [importantOnly, setImportantOnly] = useState(false);
   const [cardLayout, setCardLayout] = useState<CardLayout>(() => { try { return localStorage.getItem('interview-card-layout') === 'list' ? 'list' : 'cards'; } catch { return 'cards'; } });
@@ -68,7 +71,7 @@ export default function App() {
   }, [cardSaves.library, projectOrder]);
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 5500); }
   async function handleError(error: unknown) {
-    if (error instanceof ApiError && [401, 403].includes(error.status)) { refreshSequence.current++; cardSaves.queue.reset(); projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); await clearPrivateData().catch(() => undefined); setLoading(false); setAuthError(true); setLibrary(null); setAccount(null); setDownloads([]); setEditor(null); setDirty(false); }
+    if (!editableOffline() && error instanceof ApiError && [401, 403].includes(error.status)) { refreshSequence.current++; cardSaves.queue.reset(); projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); await clearPrivateData().catch(() => undefined); setLoading(false); setAuthError(true); setLibrary(null); setAccount(null); setDownloads([]); setEditor(null); setDirty(false); }
     notify(error instanceof Error ? error.message : '操作未完成');
   }
   async function refreshDownloads() { try { setDownloads(await readDownloads()); } catch { notify('浏览器暂时无法保存离线内容，在线复习仍可使用'); } }
@@ -98,13 +101,15 @@ export default function App() {
   }
   useEffect(() => {
     void refresh();
-    const disconnect = () => { setOffline(true); notify('已离线；可以阅读和翻卡，修改需要联网'); };
+    const libraryChanged = () => { if (!dirtyRef.current && !cardSaves.queue.hasPending && !projectOrderBusy.current) void refresh(); };
+    window.addEventListener('replica-library', libraryChanged);
+    const disconnect = () => { setOffline(true); notify(editableOffline() ? '已离线；修改会保存在手机，连接电脑后同步' : '已离线；可以阅读和翻卡，修改需要联网'); };
     const connect = () => { setOffline(false); if (!dirtyRef.current) void refresh(); else notify('网络已恢复，当前编辑内容保留；保存前请注意题库版本'); };
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirtyRef.current || cardSaves.queue.hasPending || projectOrderBusy.current) { event.preventDefault(); event.returnValue = ''; } };
     const accountChanged = (event: StorageEvent) => { if (event.key === 'interview-account-change' || event.key === 'interview-pending-logout') { projectOrderBusy.current = false; setProjectOrder(null); setOperationBusy(false); setOperationMessage(''); cardSaves.queue.reset(); setLibrary(null); setAccount(null); setEditor(null); setDirty(false); dirtyRef.current=false; setDetailId(undefined); setProjectId(undefined); setPage('home'); void refresh(); } };
     window.addEventListener('offline', disconnect); window.addEventListener('online', connect); window.addEventListener('beforeunload', beforeUnload);
     window.addEventListener('storage', accountChanged);
-    return () => { window.removeEventListener('offline', disconnect); window.removeEventListener('online', connect); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('storage', accountChanged); };
+    return () => { window.removeEventListener('replica-library', libraryChanged); window.removeEventListener('offline', disconnect); window.removeEventListener('online', connect); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('storage', accountChanged); };
   }, []);
   useEffect(() => { setSettingsOpen(false); setProjectOrder(null); }, [account?.user_id]);
   const project = library?.projects.find(p => p.id === projectId);
@@ -220,6 +225,7 @@ export default function App() {
     }, '正在导出项目…');
   }
   async function logout() {
+    if (editableOffline()) { notify('手机端请在“本机与同步”中解除配对。待同步修改会继续保留。'); openSettings(); return; }
     if (loading || operationBusy || cardSaves.queue.hasPending || !discard(() => { void logout(); })) return;
     refreshSequence.current++;
     localStorage.setItem('interview-pending-logout', '1');
@@ -265,7 +271,7 @@ export default function App() {
       <button className="brand" onClick={() => navigate('home', undefined)}><img src="/icon.svg" alt="" /><span>面试知识卡<small>把经验，变成自己的答案</small></span></button>
       <div className="side-section"><span className="side-label">我的书架</span><nav><button className={page === 'home' ? 'active' : ''} onClick={() => navigate('home', undefined)}><House size={18} />首页</button><button className={page === 'projects' ? 'active' : ''} onClick={() => navigate('projects', undefined)}><LayoutGrid size={18} />全部项目<span className="nav-count">{library?.projects.length ?? 0}</span></button><button className={page === 'practice' ? 'active' : ''} onClick={() => practice()}><GraduationCap size={18} />翻卡自测</button><button className={page === 'graph' ? 'active' : ''} onClick={() => navigate('graph', undefined)}><GitBranch size={18} />知识图谱</button></nav></div>
       <div className="side-section projects-nav"><div className="side-label"><span>项目</span><button aria-label="新增项目" className="icon-button" disabled={buttonsDisabled || !library} onClick={() => openEditor('projects', blankRecord('projects'))}><Plus size={16} /></button></div><ProjectNavigation projects={library?.projects ?? []} selectedId={page === 'project' || page === 'graph' || page === 'practice' ? projectId : undefined} counts={Object.fromEntries((library?.projects ?? []).map(p => [p.id, activeMainCards.filter(c => c.project_id === p.id).length]))} disabled={buttonsDisabled || Boolean(editor)} onOpen={openProject} onMenu={(event, id) => showContextMenu(event, 'project', id)} onReorder={ids => void reorderProjects(ids)} />{!library?.projects.length && <p className="microcopy">先建立项目，再慢慢积累问题。</p>}</div>
-      <div className="sidebar-bottom"><button className={page === 'manage' ? 'active' : ''} onClick={() => navigate('manage', undefined)}><Settings2 size={17} />维护与备份</button><div className="account"><span className="avatar">{account?.display_name?.slice(0,1) || '我'}</span><div><strong>{account?.display_name || '我的私人题库'}</strong><small>{offline ? '离线复习中' : local ? '本地预览' : '私人账户'}</small></div><button className="icon-button" aria-label="打开设置" aria-haspopup="dialog" disabled={!account || loading || operationBusy || cardSaves.saving} onClick={openSettings}><Settings size={17} /></button><button className="icon-button" aria-label="退出登录并清除离线内容" disabled={loading || operationBusy || cardSaves.saving} onClick={() => void logout()}><LogOut size={16} /></button></div></div>
+      <div className="sidebar-bottom"><button className={page === 'manage' ? 'active' : ''} onClick={() => navigate('manage', undefined)}><Settings2 size={17} />维护与备份</button><div className="account"><span className="avatar">{account?.display_name?.slice(0,1) || '我'}</span><div><strong>{account?.display_name || '我的私人题库'}</strong><small>{offline ? '离线复习中' : runtimeMode() === 'phone' ? '手机题库副本' : runtimeMode() === 'desktop' ? '本地题库' : local ? '本地预览' : '私人账户'}</small></div><button className="icon-button" aria-label="打开设置" aria-haspopup="dialog" disabled={!account || loading || operationBusy || cardSaves.saving} onClick={openSettings}><Settings size={17} /></button><button className="icon-button" aria-label="退出登录并清除离线内容" disabled={loading || operationBusy || cardSaves.saving} onClick={() => void logout()}><LogOut size={16} /></button></div></div>
     </aside>
     {sidebar && <button className="sidebar-scrim" aria-label="收起导航" onClick={() => setSidebar(false)} />}
     <div className={'main-shell' + (page === 'home' ? ' home-shell' : '')}>{page !== 'home' && <header className="topbar"><nav className="breadcrumb" aria-label="面包屑导航">
@@ -316,6 +322,7 @@ export default function App() {
     {library && pendingDeletion && <ConfirmationDialog title={deletionTitle} name={pendingDeletion.kind === 'card' || pendingDeletion.kind === 'relation' ? <InlineMarkdown text={pendingDeletion.name} questionTitle /> : pendingDeletion.name} description={deletionDescription} busy={operationBusy} error={deleteError} confirmLabel={pendingDeletion.kind === 'download' || pendingDeletion.kind === 'relation' ? '确认移除' : '确认删除'} onCancel={cancelDeletion} onConfirm={() => void confirmDeletion()} />}
     {contextMenu && menuItems.length > 0 && <ContextMenu key={contextMenu.kind + contextMenu.id + contextMenu.x + contextMenu.y} label={plain(menuCard?.title ?? menuProject?.name ?? '')} x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={closeContextMenu} />}
     {settingsOpen && account && <SettingsWindow account={account} offline={offline} notify={notify} onClose={() => setSettingsOpen(false)} />}
+    <SyncBadge onOpen={openSettings} />
     {toast && <div className="toast" role="status"><span>{toast}</span><button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
     {library && detail && !editor && !sourceId && !pendingDeletion && <Modal wide title={<InlineMarkdown text={detail.question || detail.title} questionTitle />} onClose={() => { if (!operationBusy) setDetailId(undefined); }}><div className="detail-meta"><span className="pill">{library.projects.find(p => p.id === detail.project_id)?.name}</span><span className={'status ' + detail.mastery}>{detail.mastery === 'mastered' ? '已掌握' : '待复习'}</span>{detail.important && <span className="priority-badge">重点</span>}<SourceBadge card={detail} /></div><div className="detail-actions"><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('cards', detail)}><Edit3 size={15} />编辑答案</button><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('appearance', detail)}><Plus size={15} />记录被问来源</button><button className={'secondary ' + (detail.important ? 'priority-active' : '')} aria-pressed={detail.important} disabled={stateButtonsDisabled} onClick={() => void updateCard(detail, { important: !detail.important })}><Flag size={15} />{detail.important ? '取消重点' : '设为重点'}</button><button ref={deleteButton} type="button" className="secondary card-delete-button" disabled={buttonsDisabled} onClick={() => requestDeletion('card', detail.id, detail.title)}><Trash2 size={15} />删除知识卡</button></div><div className="detail-section"><h3>复习提纲</h3><Markdown text={detail.summary_md} /></div><CardFullAnswer key={detail.id} text={detail.answer_md} />
       <FollowupList key={detail.id} library={library} card={detail} disabled={buttonsDisabled} stateDisabled={stateButtonsDisabled} onAdd={() => openEditor('followup', detail)} onEdit={card => openEditor('cards', card)} onOpen={setDetailId} onRemove={(relation, card) => requestDeletion('relation', relation.id, `${detail.title} → ${card.title}`)} onMark={card => { void updateCard(card, { mastery: card.mastery === 'mastered' ? 'review' : 'mastered' }); }} />

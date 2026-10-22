@@ -1,10 +1,10 @@
 {
   "name": "interview-knowledge-cards",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -18,16 +18,25 @@
     "deploy": "node scripts/deploy.mjs",
     "setup": "node scripts/init-config.mjs",
     "test:accounts": "node scripts/verify-accounts.mjs",
-    "seed:demo": "node scripts/seed-local.mjs"
+    "seed:demo": "node scripts/seed-local.mjs",
+    "desktop:compile": "node scripts/build-desktop.mjs",
+    "desktop:dev": "npm run build && npm run desktop:compile && electron .",
+    "desktop:server": "node desktop-dist/cli.cjs",
+    "desktop:package": "npm run build && npm run desktop:compile && electron-builder --config electron-builder.json --win nsis portable --publish never",
+    "test:sync": "vitest run tests/sync.test.ts tests/desktop-sync.test.ts tests/replica.test.ts",
+    "desktop:migrate": "node scripts/migrate-to-desktop.mjs"
   },
   "dependencies": {
+    "@peculiar/x509": "^2.2.0",
     "d3-force": "^3.0.0",
     "hono": "^4.10.0",
     "jose": "^6.1.0",
     "lucide-react": "^0.468.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "reflect-metadata": "^0.2.2",
     "remark-gfm": "^4.0.1",
     "undici": "7.29.1",
     "zod": "^4.1.0"
@@ -36,9 +45,14 @@
     "@cloudflare/workers-types": "latest",
     "@types/d3-force": "^3.0.10",
     "@types/node": "^24.19.2",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.6",
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
     "vitest": "^5.0.4",
@@ -49,5 +63,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Wahuwahuuu/interview-knowledge-cards.git"
-  }
+  },
+  "main": "desktop-dist/main.cjs"
 }

@@ -1,5 +1,7 @@
 # 面试知识卡 · Interview Knowledge Cards
 
+Windows 本地版使用 SQLite 保存完整题库；iPhone PWA 可离线编辑，连接电脑后双向同步。安装包、迁移、配对及维护方式见 [本地软件使用说明](docs/desktop.md)。原 Cloudflare 网页模式继续保留。
+
 [![CI](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml/badge.svg)](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/Wahuwahuuu/interview-knowledge-cards)](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

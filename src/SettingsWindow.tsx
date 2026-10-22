@@ -3,8 +3,10 @@ import { KeyRound, ShieldCheck } from 'lucide-react';
 import type { Account } from '../shared/accounts';
 import { AccountView, AdminView } from './AccountView';
 import { Modal } from './Editors';
+import { runtimeMode } from './local-replica';
+import { SyncView } from './SyncView';
 
-type SettingsTab = 'account' | 'users';
+type SettingsTab = 'account' | 'users' | 'sync';
 
 export function SettingsWindow({ account, offline, notify, onClose }: {
   account: Account;
@@ -12,11 +14,12 @@ export function SettingsWindow({ account, offline, notify, onClose }: {
   notify: (text: string) => void;
   onClose: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('account');
+  const hasSync = runtimeMode() !== 'cloud';
+  const [activeTab, setActiveTab] = useState<SettingsTab>(hasSync ? 'sync' : 'account');
   const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
   const id = useId();
-  const tabs: SettingsTab[] = account.role === 'admin' ? ['account', 'users'] : ['account'];
-  const selected = account.role === 'admin' ? activeTab : 'account';
+  const tabs: SettingsTab[] = [...(hasSync ? ['sync' as const] : []), 'account', ...(account.role === 'admin' ? ['users' as const] : [])];
+  const selected = tabs.includes(activeTab) ? activeTab : 'account';
 
   function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, tab: SettingsTab) {
     const position = tabs.indexOf(tab);
@@ -45,7 +48,7 @@ export function SettingsWindow({ account, offline, notify, onClose }: {
           tabIndex={selected === tab ? 0 : -1}
           onClick={() => setActiveTab(tab)}
           onKeyDown={event => navigateTabs(event, tab)}
-        >{tab === 'account' ? <KeyRound size={18} /> : <ShieldCheck size={18} />}{tab === 'account' ? '账户与密码' : '用户管理'}</button>)}
+        >{tab === 'account' ? <KeyRound size={18} /> : <ShieldCheck size={18} />}{tab === 'account' ? '账户与密码' : tab === 'sync' ? '本机与同步' : '用户管理'}</button>)}
       </div>
       <div id={`${id}-account-panel`} role="tabpanel" aria-labelledby={`${id}-account-tab`} className="settings-panel" hidden={selected !== 'account'} tabIndex={selected === 'account' ? 0 : -1}>
         <AccountView account={account} offline={offline} notify={notify} />
@@ -53,6 +56,7 @@ export function SettingsWindow({ account, offline, notify, onClose }: {
       {account.role === 'admin' && <div id={`${id}-users-panel`} role="tabpanel" aria-labelledby={`${id}-users-tab`} className="settings-panel" hidden={selected !== 'users'} tabIndex={selected === 'users' ? 0 : -1}>
         {selected === 'users' && <AdminView offline={offline} notify={notify} />}
       </div>}
+      {hasSync && <div id={`${id}-sync-panel`} role="tabpanel" aria-labelledby={`${id}-sync-tab`} className="settings-panel" hidden={selected !== 'sync'}>{selected === 'sync' && <SyncView notify={notify} />}</div>}
     </div>
   </Modal>;
 }

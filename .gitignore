@@ -25,4 +25,5 @@ docs/iPhone使用说明.md
 docs/多用户升级方案.md
 scripts/prepare-seed.mjs
 releases/
+desktop-dist/
 *.log

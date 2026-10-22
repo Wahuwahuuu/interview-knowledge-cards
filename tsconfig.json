@@ -6,5 +6,5 @@
     "resolveJsonModule": true, "isolatedModules": true, "noEmit": true,
     "types": ["vite/client", "@cloudflare/workers-types"]
   },
-  "include": ["src", "worker", "shared", "tests", "vite.config.ts"]
+  "include": ["src", "worker", "shared", "desktop", "tests", "vite.config.ts"]
 }

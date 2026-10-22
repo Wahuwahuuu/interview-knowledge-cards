@@ -1,9 +1,15 @@
 import type { Library } from '../shared/model';
+import { editableOffline, replicaApi } from './local-replica';
+import { markdownExport } from '../shared/model';
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code = '', public details: { path: string; message: string }[] = []) { super(message); }
 }
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (editableOffline()) {
+    try { return await replicaApi(path, init) as T; }
+    catch (error) { if (error && typeof error === 'object' && 'status' in error && 'code' in error) throw new ApiError(error instanceof Error ? error.message : '本机操作失败', Number(error.status), String(error.code)); throw error; }
+  }
   const headers = new Headers(init.headers);
   if (init.body) headers.set('Content-Type', 'application/json');
   const response = await fetch('/api/v1' + path, { ...init, headers, credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
@@ -17,6 +23,12 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return value as T;
 }
 export const loadLibrary = () => api<Library>('/library');
+export async function exportMarkdownText() {
+  if (editableOffline()) return markdownExport(await api<Library>('/export'));
+  const response = await fetch('/api/v1/export?format=markdown', { credentials: 'same-origin', redirect: 'error' });
+  if (!response.ok || !response.headers.get('content-type')?.includes('text/markdown')) throw new Error('导出失败，请检查登录状态');
+  return response.text();
+}
 export const newId = (prefix: string) => prefix + '-' + crypto.randomUUID();
 export function downloadFile(name: string, text: string, mime: string) {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));

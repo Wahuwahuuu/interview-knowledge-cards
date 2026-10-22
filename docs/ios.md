@@ -1,5 +1,7 @@
 # iPhone 复习
 
+本地软件模式请先阅读 [Windows 与 iPhone 配对说明](desktop.md)：配对后的主屏幕应用支持离线编辑、新增、标记和双向同步。下面的下载步骤只适用于原 Cloudflare 网页模式，其离线副本仍以阅读为主。
+
 1. 在 Safari 打开自己的在线部署网址，用邮箱账号和密码登录。
 2. 使用分享菜单选择「添加到主屏幕」；之后从桌面图标进入。按钮位置以当前 iOS 为准，参见 [Apple 官方说明](https://support.apple.com/en-in/guide/iphone/iph42ab2f3a7/ios)。
 3. 联网进入一个项目，点击「下载项目」，等到成功提示。

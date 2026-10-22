@@ -3,7 +3,7 @@ import { Upload, Download, Check, RotateCcw, FileJson, RefreshCw, ChevronUp, Che
 import { type Change, type ImportBatch, type ImportEnvelope, type Library } from '../shared/model';
 import { importFileLimit, parseImportFile, validateMergeImport, type ImportPage } from '../shared/import-file';
 import { summarizeChanges } from '../shared/import-summary';
-import { ApiError, api, downloadFile, loadLibrary } from './api';
+import { ApiError, api, downloadFile, exportMarkdownText, loadLibrary } from './api';
 import { ImportPreview } from './ImportPreview';
 import { ManualImportForm } from './ManualImportForm';
 import { applyImportBatch, cancelImportBatch, createImportSubmitter, refreshImportBatch, type ImportResult } from './import-actions';
@@ -185,7 +185,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     {view === 'backup' && <div className="backup-page">
       <section className="panel"><div className="section-title"><h3><Download size={19} />下载备份</h3></div><p className="muted">完整 JSON 可恢复题目、来源、关联和答案历史；Markdown 适合直接阅读。</p><div className="backup-buttons">
         <button className="primary" disabled={offline || busy} onClick={() => void run(async () => { const backup = await api<Record<string, unknown>>('/export'); downloadFile(`面试知识卡-完整备份-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(backup, null, 2), 'application/json'); notify('完整备份已下载'); })}><Download size={16} />导出完整备份</button>
-        <button className="secondary" disabled={offline || busy} onClick={() => void run(async () => { const response = await fetch('/api/v1/export?format=markdown', { credentials: 'same-origin', redirect: 'error' }); if (!response.ok || !response.headers.get('content-type')?.includes('text/markdown')) throw new Error('导出失败，请检查登录状态'); downloadFile(`面试知识卡-阅读版-${new Date().toISOString().slice(0, 10)}.md`, await response.text(), 'text/markdown'); notify('Markdown 阅读版已下载'); })}>导出 Markdown 阅读版</button>
+        <button className="secondary" disabled={offline || busy} onClick={() => void run(async () => { downloadFile(`面试知识卡-阅读版-${new Date().toISOString().slice(0, 10)}.md`, await exportMarkdownText(), 'text/markdown'); notify('Markdown 阅读版已下载'); })}>导出 Markdown 阅读版</button>
       </div></section>
       <section className="panel backup-restore"><div className="section-title"><h3><RotateCcw size={19} />恢复完整备份</h3></div><p className="muted">上传之前下载的完整 JSON 备份，先预览，再确认恢复。</p><p className="notice warning">恢复会替换当前账号的整个题库。移除的题目与资料会列在预览中。</p><button className="secondary" disabled={offline || busy} onClick={() => restoreFile.current?.click()}><Upload size={16} />选择备份并预览</button>
         <input ref={restoreFile} type="file" aria-label="上传完整备份文件" accept="application/json,.json" className="visually-hidden" disabled={offline || busy} onChange={event => { const next = event.target.files?.[0]; event.target.value = ''; if (next) void upload(next, 'backup'); }} />

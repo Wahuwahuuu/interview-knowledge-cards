@@ -11,6 +11,7 @@
 - `README.md`：项目功能、运行方法与当前限制。
 - `src/`：React + TypeScript 前端、图谱及离线逻辑。
 - `worker/`：Cloudflare Workers / Hono 接口、授权与 D1 数据操作。
+- `desktop/`：Electron Windows 软件、SQLite 兼容层、HTTPS 配对和事务同步服务。桌面构建入口见 `docs/desktop.md`。
 - `shared/`：数据契约、校验和导入差异。
 - `migrations/`：数据库迁移；`scripts/`：配置、部署与验证工具。
 - `docs/`：账户、部署、AI 导入、备份恢复和验收说明。
@@ -22,11 +23,13 @@
 - 构建后本地预览：`npm run build`、`npm run db:local`、`npm run preview`。
 - 根据改动范围运行相关检查：`npm run build`、`npm test`、`npm run test:api`、`npm run test:accounts`；验证说明见 `docs/validation.md`。
 - 离线行为使用构建后的预览验证。历史验收记录不能替代本次改动的验证。
+- 本地软件使用 `npm run desktop:dev`、`npm run desktop:package`；同步检查为 `npm run test:sync`。Windows 数据位于 `%APPDATA%\InterviewKnowledgeCards`，安装包与个人数据库分离。
 
 ## 维护边界
 
 - 口述版遵循用户要求：简洁、易记，以少量短句记录直接答案；按答案结构分行或列短要点，适度加粗记忆关键词，不能全部挤成一段。必要前提留在口述，细节、案例和推导放进完整讲解。主问题和追问均逐题按含义核对两种答案，不按关键词相似度或段落序号自动分配。
 - 保护用户题库、账户隔离、历史版本及备份恢复能力；涉及相关行为时核对对应契约与测试。
+- 用户已选择 Windows 本地 SQLite 为主要题库，iPhone 使用离线 PWA 双向同步。后续维护先检查本机 `connection.json` 和本机 AI 接口，不要把旧线上副本覆盖到本机；凭证文件不输出到日志。手机待同步修改必须持久化，确认电脑提交后才移除；冲突保留双方供用户选择。
 - 用户已明确要求网页填写、JSON 上传及 AI 提交都直接导入，只保留结果记录，不再人工确认。AI 机器凭证仍仅绑定管理员题库，不可删除、恢复整个题库或管理用户；所有删除与完整备份恢复仍需二次确认。历史待确认记录不得自动执行。
 - 个人题库、真实面试资料、凭证、备份和本机部署配置保持在被忽略的位置；提交前检查差异，示例使用虚构资料。
 - 部署和远程数据库操作根据用户任务授权执行，本地验证不需要操作线上数据。
