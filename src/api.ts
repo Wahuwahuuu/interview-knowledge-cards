@@ -7,7 +7,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set('Content-Type', 'application/json');
   const response = await fetch('/api/v1' + path, { ...init, headers, credentials: 'same-origin', cache: 'no-store', redirect: 'manual' });
-  if (response.redirected || !response.headers.get('content-type')?.includes('application/json')) throw new ApiError('登录已过期，请重新登录', 401, 'UNAUTHENTICATED');
+  if (response.redirected || response.status === 0 || (response.status >= 300 && response.status < 400)) throw new ApiError('登录已过期，请重新登录', 401, 'UNAUTHENTICATED');
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    if (response.status === 401 || response.status === 403) throw new ApiError('登录已过期，请重新登录', response.status, 'UNAUTHENTICATED');
+    throw new ApiError('服务暂时不可用，请稍后重试', response.ok ? 502 : response.status, 'SERVICE_UNAVAILABLE');
+  }
   const value = await response.json() as { error?: { message?: string; code?: string; details?: { path: string; message: string }[] } };
   if (!response.ok) throw new ApiError(value.error?.message ?? '请求未完成', response.status, value.error?.code, value.error?.details);
   return value as T;

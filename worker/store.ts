@@ -126,7 +126,7 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
       const previous = old.get(value.id);
       // Cloned unchanged entities retain property order. Native serialization is
       // much cheaper here than recursively sorting every key in the whole library.
-      if (!options.restore && (JSON.stringify(previous) === JSON.stringify(value) || canonical(previous) === canonical(value))) continue;
+      if (!options.restore && (previous === value || JSON.stringify(previous) === JSON.stringify(value) || canonical(previous) === canonical(value))) continue;
       statements.push(upsert(db, userId, kind, value));
       if (kind === 'cards') {
         statements.push(db.prepare('DELETE FROM user_card_topics WHERE user_id=? AND card_id=?').bind(userId,value.id));
