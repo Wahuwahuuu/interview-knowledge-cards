@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, Edit3, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Edit3, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle, Trash2 } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
-import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, previousPractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
+import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, previousPractice, reconcilePractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
 import { followupCards } from '../shared/followups';
 import { InlineMarkdown, Markdown } from './Markdown';
 import './practice-edit.css';
@@ -15,6 +15,7 @@ type Props = {
   saveStatus?: Record<string, 'saving' | 'error'>;
   onMark: (card: Card, mastery: Card['mastery']) => Promise<void>;
   onEdit: (card: Card) => void;
+  onDelete: (card: Card) => void;
   onScopeChange: (projectId: string | undefined) => void;
   onOpenProject: (projectId: string) => void;
 };
@@ -26,22 +27,26 @@ function ModeToggle({ mode, onChange }: { mode: PracticeMode; onChange: (mode: P
   </div>;
 }
 
-export function PracticeView({ library, initialProjectId, offline, busy, editDisabled, saveStatus, onMark, onEdit, onScopeChange, onOpenProject }: Props) {
+export function PracticeView({ library, initialProjectId, offline, busy, editDisabled, saveStatus, onMark, onEdit, onDelete, onScopeChange, onOpenProject }: Props) {
   const [scope, setScope] = useState<'all' | 'project'>(initialProjectId ? 'project' : 'all');
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId ?? library.projects[0]?.id ?? '');
   const [mode, setMode] = useState<PracticeMode>('sequential');
   const [session, setSession] = useState<PracticeSession | null>(null);
-  const [revealed, setRevealed] = useState(false);
-  const [fullAnswerOpen, setFullAnswerOpen] = useState(false);
-  const [followupIndex, setFollowupIndex] = useState(-1);
+  const [revealedId, setRevealedId] = useState<string | null>(null);
+  const [fullAnswerId, setFullAnswerId] = useState<string | null>(null);
+  const [followupId, setFollowupId] = useState<string | null>(null);
   const projectId = scope === 'project' ? selectedProjectId : undefined;
   const cards = useMemo(() => scope === 'project' && !selectedProjectId ? [] : practiceMainCards(library, projectId), [library, projectId, scope, selectedProjectId]);
+  useEffect(() => { setSession(value => value ? reconcilePractice(value, cards.map(card => card.id)) : null); }, [cards]);
   const root = session ? library.cards.find(value => value.id === currentPracticeId(session) && !value.archived) : undefined;
   const followups = useMemo(() => root ? followupCards(library, root.id, projectId) : [], [library, root?.id, projectId]);
-  const card = followupIndex >= 0 ? followups[followupIndex] ?? root : root;
+  const followupIndex = followups.findIndex(value => value.id === followupId);
+  const card = followupIndex >= 0 ? followups[followupIndex] : root;
+  const revealed = Boolean(card && card.id === revealedId);
+  const fullAnswerOpen = Boolean(card && card.id === fullAnswerId);
   const selectedProject = library.projects.find(value => value.id === selectedProjectId);
 
-  function showQuestion(index = -1) { setFollowupIndex(index); setRevealed(false); setFullAnswerOpen(false); }
+  function showQuestion(index = -1) { setFollowupId(followups[index]?.id ?? null); setRevealedId(null); setFullAnswerId(null); }
 
   function chooseScope(next: 'all' | 'project') {
     setScope(next);
@@ -79,16 +84,16 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
 
   return <section>
     <div className="practice-session-toolbar">
-      <div className="button-row"><button className="text-button" onClick={() => { setSession(null); setRevealed(false); }}><ArrowLeft size={16} />选择复习范围</button><span className="practice-scope-name">{scope === 'all' ? '全库发问' : selectedProject?.name}</span></div>
+      <div className="button-row"><button className="text-button" onClick={() => { setSession(null); showQuestion(); }}><ArrowLeft size={16} />选择复习范围</button><span className="practice-scope-name">{scope === 'all' ? '全库发问' : selectedProject?.name}</span></div>
       <ModeToggle mode={session.mode} onChange={changeMode} />
     </div>
     {card ? <>
       <div className="practice-progress"><span>{session.mode === 'sequential' ? `第 ${session.ids.indexOf(root!.id) + 1} / ${session.ids.length} 组` : `第 ${session.historyIndex + 1} 次发问 · 共 ${session.ids.length} 组`}{followupIndex >= 0 ? ` · 追问 ${followupIndex + 1} / ${followups.length}` : ' · 主问题'}</span><button className="text-button" onClick={() => onOpenProject(card.project_id)}>{library.projects.find(project => project.id === card.project_id)?.name}</button></div>
       <article className={'practice-card ' + (revealed ? 'revealed' : '')}>
-        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span><div className="practice-card-tools"><span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span><button type="button" className="text-button practice-edit-button" disabled={editDisabled} onClick={() => onEdit(card)}><Edit3 size={15} />编辑</button></div></div>
+        <div className="practice-card-label"><span>{card.important && <span className="priority-badge">重点</span>}{saveStatus?.[card.id] === 'saving' && <span className="practice-save-status" role="status"><RefreshCw size={13} className="spin" />正在保存…</span>}{saveStatus?.[card.id] === 'error' && <span className="practice-save-status save-failed">标记未保存</span>}</span><div className="practice-card-tools"><span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span><button type="button" className="text-button practice-edit-button" disabled={editDisabled} onClick={() => onEdit(card)}><Edit3 size={15} />编辑</button><button type="button" className="text-button practice-delete-button" disabled={editDisabled || offline || busy} onClick={() => onDelete(card)}><Trash2 size={15} />删除</button></div></div>
         {followupIndex >= 0 && <p className="practice-parent">主问题：<InlineMarkdown text={root!.question} /></p>}
         <h2><InlineMarkdown text={card.question} /></h2>
-        {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerOpen(event.currentTarget.open)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealed(true)}><BookOpen size={17} />揭晓答案</button></div>}
+        {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerId(event.currentTarget.open ? card.id : null)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealedId(card.id)}><BookOpen size={17} />揭晓答案</button></div>}
       </article>
       {followups.length > 0 && <div className="practice-followups">
         <div className="button-row">{followupIndex >= 0 ? <><button className="text-button" onClick={() => showQuestion()}>返回主问题</button><button className="text-button" onClick={() => showQuestion(followupIndex - 1)}><ArrowLeft size={14} />上一问</button></> : <span className="muted">这道主问题有 {followups.length} 条追问</span>}</div>
@@ -100,6 +105,6 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
         <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value) : null); showQuestion(); }}>下一题<ArrowRight size={16} /></button>
       </div>
       {offline && <p className="microcopy centered">离线可阅读和翻卡；掌握状态需要联网保存。</p>}
-    </> : <div className="empty-state"><BookOpen size={30} /><h3>这道题已不在复习范围内</h3><button className="secondary" onClick={() => setSession(null)}>重新选择复习范围</button></div>}
+    </> : <div className="empty-state"><BookOpen size={30} /><h3>{cards.length ? '这道题已不在复习范围内' : '当前范围已没有可复习的问题'}</h3><button className="secondary" onClick={() => setSession(null)}>重新选择复习范围</button></div>}
   </section>;
 }

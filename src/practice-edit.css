@@ -6,8 +6,17 @@
   gap: 10px;
 }
 
-.practice-edit-button {
+.practice-edit-button,
+.practice-delete-button {
   min-height: 36px;
   padding: 6px 8px;
   white-space: nowrap;
+}
+
+.practice-card-tools .practice-delete-button {
+  color: #9b3e32;
+}
+
+.practice-card-tools .practice-delete-button:hover:not(:disabled) {
+  background: #f9eeeb;
 }

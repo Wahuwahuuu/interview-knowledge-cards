@@ -75,6 +75,30 @@ export function currentPracticeId(session: PracticeSession): string | undefined 
   return session.history[session.historyIndex];
 }
 
+/** Keep a running session usable when cards are removed or followups become roots. */
+export function reconcilePractice(session: PracticeSession, ids: string[], random: () => number = Math.random): PracticeSession {
+  const orderedIds = [...new Set(ids)];
+  if (orderedIds.length === session.ids.length && orderedIds.every((id, index) => id === session.ids[index])) return session;
+  if (!orderedIds.length) return { ...session, ids: [], history: [], historyIndex: 0, remaining: [] };
+  const available = new Set(orderedIds), current = currentPracticeId(session);
+  const added = orderedIds.filter(id => !session.ids.includes(id));
+  const remaining = [...new Set([...session.remaining.filter(id => available.has(id)), ...added])];
+  const visited = session.history.slice(0, session.historyIndex + 1).filter(id => available.has(id));
+  if (current && available.has(current)) return {
+    ...session, ids: orderedIds,
+    history: [...visited, ...session.history.slice(session.historyIndex + 1).filter(id => available.has(id))],
+    historyIndex: visited.length - 1,
+    remaining: remaining.filter(id => id !== current),
+  };
+  const oldIndex = current ? session.ids.indexOf(current) : 0;
+  const nextIndex = session.ids.slice(0, Math.max(oldIndex, 0)).filter(id => available.has(id)).length;
+  const next = session.mode === 'random'
+    ? shuffled(remaining.length ? remaining : orderedIds, random)[0]
+    : orderedIds[Math.min(nextIndex, orderedIds.length - 1)];
+  const history = visited.at(-1) === next ? visited : [...visited, next];
+  return { ...session, ids: orderedIds, history, historyIndex: history.length - 1, remaining: remaining.filter(id => id !== next) };
+}
+
 export function setPracticeMode(session: PracticeSession, mode: PracticeMode): PracticeSession {
   if (session.mode === mode) return session;
   const current = currentPracticeId(session);

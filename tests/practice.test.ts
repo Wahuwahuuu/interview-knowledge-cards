@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { cardSchema, emptyLibrary } from '../shared/model';
-import { canAdvancePractice, currentPracticeId, nextPractice, practiceCards, previousPractice, setPracticeMode, startPractice } from '../shared/practice';
+import { canAdvancePractice, currentPracticeId, nextPractice, practiceCards, practiceMainCards, previousPractice, reconcilePractice, setPracticeMode, startPractice } from '../shared/practice';
+import { removeCard } from '../shared/card-actions';
 import { PracticeView } from '../src/PracticeView';
 
 const card = (id: string, title: string, updated_at = '', project_id = 'redis') => cardSchema.parse({ id, title, question: `${title}？`, project_id, updated_at });
@@ -29,7 +30,7 @@ describe('复习范围与稳定顺序', () => {
     const library = emptyLibrary();
     library.cards = [{ ...card('q1', '测试题'), summary_md: 'PRIVATE_OUTLINE', answer_md: 'PRIVATE_ANSWER' }];
     library.projects = [{ id: 'redis', name: 'Redis', revision: 1, updated_at: '', description: '' }];
-    const html = renderToStaticMarkup(createElement(PracticeView, { library, offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
+    const html = renderToStaticMarkup(createElement(PracticeView, { library, offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onDelete: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
     expect(html).toContain('全库发问');
     expect(html).toContain('按题库发问');
     expect(html).toContain('顺序出题');
@@ -44,10 +45,70 @@ describe('复习范围与稳定顺序', () => {
   it('从项目进入时预选题库，空题库禁用开始', () => {
     const library = emptyLibrary();
     library.projects = [{ id: 'mysql', name: 'MySQL', revision: 1, updated_at: '', description: '' }];
-    const html = renderToStaticMarkup(createElement(PracticeView, { library, initialProjectId: 'mysql', offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
+    const html = renderToStaticMarkup(createElement(PracticeView, { library, initialProjectId: 'mysql', offline: false, busy: false, editDisabled: false, onMark: async () => {}, onEdit: () => {}, onDelete: () => {}, onScopeChange: () => {}, onOpenProject: () => {} }));
     expect(html).toContain('<option value="mysql" selected="">MySQL（0 道主问题）</option>');
     expect(html).toMatch(/<button class="primary" disabled="">/);
     expect(html).toContain('这个题库还没有可复习的问题');
+  });
+});
+
+describe('自测中删除卡片', () => {
+  it('删除当前主问题后继续下一组，历史中不再返回已删题', () => {
+    const session = nextPractice(startPractice(['a', 'b', 'c'], 'sequential'));
+    const next = reconcilePractice(session, ['a', 'c']);
+    expect(currentPracticeId(next)).toBe('c');
+    expect(currentPracticeId(previousPractice(next))).toBe('a');
+    expect(next.mode).toBe('sequential');
+    expect(next.history).not.toContain('b');
+  });
+
+  it('当前题保留时不跳题，清理前后访问历史里的已删题', () => {
+    const last = nextPractice(nextPractice(startPractice(['a', 'b', 'c'], 'sequential')));
+    const session = previousPractice(last);
+    const next = reconcilePractice(session, ['b']);
+    expect(currentPracticeId(next)).toBe('b');
+    expect(next.history).toEqual(['b']);
+    expect(next.historyIndex).toBe(0);
+    expect(canAdvancePractice(next)).toBe(false);
+  });
+
+  it('随机模式删除当前题后保留模式并从未访问的存活题继续', () => {
+    const session = startPractice(['a', 'b', 'c', 'd'], 'random', () => 0.3);
+    const current = currentPracticeId(session)!;
+    const ids = session.ids.filter(id => id !== current);
+    const next = reconcilePractice(session, ids, () => 0.5);
+    expect(next.mode).toBe('random');
+    expect(session.remaining).toContain(currentPracticeId(next));
+    expect(next.history).not.toContain(current);
+    expect(next.remaining).not.toContain(current);
+    const following = nextPractice(next, () => 0.1);
+    expect(currentPracticeId(following)).not.toBe(currentPracticeId(next));
+    expect(ids).toContain(currentPracticeId(following));
+  });
+
+  it('删除主问题保留追问卡片，孤立追问可继续独立复习', () => {
+    const library = emptyLibrary();
+    library.cards = [card('a', '主问题'), card('b', '追问'), card('c', '另一主问题')];
+    library.relations = [{ id: 'a-b', from_card_id: 'a', to_card_id: 'b', kind: 'followup', order: 0, revision: 1, updated_at: '' }];
+    const session = startPractice(practiceMainCards(library).map(card => card.id), 'sequential');
+    const nextLibrary = removeCard(library, 'a');
+    const next = reconcilePractice(session, practiceMainCards(nextLibrary).map(card => card.id));
+    expect(nextLibrary.cards.map(card => card.id)).toEqual(['b', 'c']);
+    expect(currentPracticeId(next)).toBe('b');
+    expect(currentPracticeId(nextPractice(next))).toBe('c');
+  });
+
+  it('删除最后一题后会话为空，不能前进或返回已删题', () => {
+    const next = reconcilePractice(startPractice(['a'], 'random'), []);
+    expect(currentPracticeId(next)).toBeUndefined();
+    expect(canAdvancePractice(next)).toBe(false);
+    expect(previousPractice(next)).toBe(next);
+    expect(nextPractice(next)).toBe(next);
+  });
+
+  it('取消删除或其他内容变化未移除卡片时保留原会话', () => {
+    const session = startPractice(['a', 'b'], 'random');
+    expect(reconcilePractice(session, ['a', 'b'])).toBe(session);
   });
 });
 
