@@ -1,3 +1,4 @@
+import { isSourceTopic } from './card-source';
 import type { Library } from './model';
 
 export type GraphNodeType = 'project' | 'card' | 'topic';
@@ -42,7 +43,7 @@ export function buildGraphScene(library: Library, projectId?: string): GraphScen
   const projectIds = new Set(cards.map(card => card.project_id));
   const topicIds = new Set(cards.flatMap(card => card.topic_ids));
   const projects = library.projects.filter(project => projectIds.has(project.id)).sort(byId);
-  const topics = library.topics.filter(topic => topicIds.has(topic.id)).sort(byId);
+  const topics = library.topics.filter(topic => topicIds.has(topic.id) && !isSourceTopic(topic.id)).sort(byId);
   const nodes: GraphSceneNode[] = [], links: GraphSceneLink[] = [], indices = new Map<string, number>();
   const projectPositions = new Map<string, { x: number; y: number }>();
   const groupSpacing = Math.max(210, Math.sqrt(cards.length / Math.max(1, projects.length)) * 35);

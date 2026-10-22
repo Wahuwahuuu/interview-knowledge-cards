@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizeCardPriority } from './card-priority';
 import { canLinkFollowup } from './followups';
+import { isSourceTopic } from './card-source';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/, 'ID 只能包含字母、数字及 . _ : -');
 const text = z.string().max(400_000);
@@ -201,12 +202,12 @@ export function graphElements(library: Library, projectId?: string) {
   const cards = library.cards.filter(c => !c.archived && (!projectId || c.project_id === projectId));
   const cardIds = new Set(cards.map(c => c.id));
   const projectIds = new Set(cards.map(c => c.project_id));
-  const topicIds = new Set(cards.flatMap(c => c.topic_ids));
+  const topicIds = new Set(cards.flatMap(c => c.topic_ids.filter(id => !isSourceTopic(id))));
   return [
     ...library.projects.filter(p => projectIds.has(p.id)).map(p => ({ data: { id: `p:${p.id}`, entity_id: p.id, label: p.name, type: 'project' } })),
     ...cards.map(c => ({ data: { id: `c:${c.id}`, entity_id: c.id, label: c.title, type: 'card', mastered: c.mastery === 'mastered' ? 'yes' : 'no' } })),
     ...library.topics.filter(t => topicIds.has(t.id)).map(t => ({ data: { id: `t:${t.id}`, entity_id: t.id, label: t.name, type: 'topic' } })),
-    ...cards.flatMap(c => [{ data: { id: `pc:${c.id}`, source: `p:${c.project_id}`, target: `c:${c.id}`, kind: 'project' } }, ...c.topic_ids.map(t => ({ data: { id: `ct:${c.id}:${t}`, source: `c:${c.id}`, target: `t:${t}`, kind: 'topic' } }))]),
+    ...cards.flatMap(c => [{ data: { id: `pc:${c.id}`, source: `p:${c.project_id}`, target: `c:${c.id}`, kind: 'project' } }, ...c.topic_ids.filter(id => !isSourceTopic(id)).map(t => ({ data: { id: `ct:${c.id}:${t}`, source: `c:${c.id}`, target: `t:${t}`, kind: 'topic' } }))]),
     ...library.relations.filter(r => cardIds.has(r.from_card_id) && cardIds.has(r.to_card_id)).map(r => ({ data: { id: `r:${r.id}`, source: `c:${r.from_card_id}`, target: `c:${r.to_card_id}`, kind: r.kind, label: r.kind === 'followup' ? '追问' : '相关' } })),
   ];
 }

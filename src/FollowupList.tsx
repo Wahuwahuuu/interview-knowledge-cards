@@ -4,13 +4,14 @@ import type { Card, Library, Relation } from '../shared/model';
 import { orderedFollowups } from '../shared/followups';
 import { CardFullAnswer } from './CardContent';
 import { InlineMarkdown, Markdown } from './Markdown';
+import { SourceBadge } from './SourceBadge';
 
 type Props = { library: Library; card: Card; disabled: boolean; stateDisabled: boolean; onAdd: () => void; onEdit: (card: Card) => void; onOpen: (id: string) => void; onRemove: (relation: Relation, card: Card) => void; onMark: (card: Card) => void };
 
 function FollowupItem({ card, relation, ...props }: Omit<Props, 'onAdd'> & { relation: Relation }) {
   const [open, setOpen] = useState(false);
   return <details className="followup-item" onToggle={event => setOpen(event.currentTarget.open)}>
-    <summary><span><InlineMarkdown text={card.question} /></span><span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span></summary>
+    <summary><span><InlineMarkdown text={card.question} /></span><span className={'status ' + card.mastery}>{card.mastery === 'mastered' ? '已掌握' : '待复习'}</span><SourceBadge card={card} /></summary>
     {open && <div className="followup-content">
       <h4>口述答案</h4>{card.summary_md ? <Markdown text={card.summary_md} /> : <p className="muted">还没有口述答案，可以点击编辑补充。</p>}
       <CardFullAnswer text={card.answer_md} />
