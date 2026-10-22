@@ -2,15 +2,18 @@
 .home-shell {
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-.home-shell > .topbar {
-  flex-shrink: 0;
+.home-menu-button {
+  display: none;
 }
 
 .home-main {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -171,13 +174,19 @@
 }
 
 @media (max-width: 760px) {
-  .home-shell > .topbar {
-    height: calc(62px + env(safe-area-inset-top));
+  .home-menu-button {
+    display: inline-flex;
+    position: absolute;
+    top: calc(max(16px, env(safe-area-inset-top)) + 12px);
+    right: calc(max(16px, env(safe-area-inset-right)) + 12px);
+    width: 40px;
+    height: 40px;
+    z-index: 2;
   }
 
   .home-main {
     gap: 16px;
-    padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   }
 
   .home-main .welcome {
