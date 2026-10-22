@@ -266,7 +266,7 @@ export default function App() {
       <div className="sidebar-bottom"><button className={page === 'manage' ? 'active' : ''} onClick={() => navigate('manage', undefined)}><Settings2 size={17} />维护与备份</button><div className="account"><span className="avatar">{account?.display_name?.slice(0,1) || '我'}</span><div><strong>{account?.display_name || '我的私人题库'}</strong><small>{offline ? '离线复习中' : local ? '本地预览' : '私人账户'}</small></div><button className="icon-button" aria-label="打开设置" aria-haspopup="dialog" disabled={!account || loading || operationBusy || cardSaves.saving} onClick={openSettings}><Settings size={17} /></button><button className="icon-button" aria-label="退出登录并清除离线内容" disabled={loading || operationBusy || cardSaves.saving} onClick={() => void logout()}><LogOut size={16} /></button></div></div>
     </aside>
     {sidebar && <button className="sidebar-scrim" aria-label="收起导航" onClick={() => setSidebar(false)} />}
-    <div className="main-shell"><header className="topbar"><nav className="breadcrumb" aria-label="面包屑导航">
+    <div className={'main-shell' + (page === 'home' ? ' home-shell' : '')}><header className="topbar"><nav className="breadcrumb" aria-label="面包屑导航">
       <button className="icon-button mobile-menu" aria-label="打开项目导航" onClick={() => setSidebar(true)}><Menu size={21} /></button>
       <button aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigate('home', undefined)}>首页</button>
       {(page === 'projects' || page === 'project' && projectId) && <><ChevronRight size={14} /><button aria-current={page === 'projects' ? 'page' : undefined} onClick={() => navigate('projects', undefined)}>全部项目</button></>}
@@ -276,7 +276,7 @@ export default function App() {
     </nav><div className="topbar-actions">{(operationMessage || cardSaves.saving) && <span className="operation-status" role="status"><RefreshCw size={14} className="spin" />{operationMessage || (cardSaves.retrying ? '正在重试保存…' : `正在保存 ${cardSaves.pending.length} 项标记…`)}</span>}<span className={'connection ' + (offline ? 'is-offline' : '')}><i />{offline ? '离线' : '已连接'}</span></div></header>
       {cardSaves.failed.length > 0 && <div className="state-save-error" role="alert"><span>{cardSaves.failed.length} 项标记尚未确认保存，请重试。</span><button className="secondary" disabled={offline || operationBusy || cardSaves.saving} onClick={() => void cardSaves.queue.retry()}>重试保存</button></div>}
       {offline && library && <div className="offline-banner"><WifiOff size={17} /><span>离线复习中。阅读和翻卡可用，编辑与标记需要联网。<small>已下载内容保留至上次更新。</small></span></div>}
-      <main className={page === 'graph' && library ? 'graph-main' : undefined}>
+      <main className={page === 'home' ? 'home-main' : page === 'graph' && library ? 'graph-main' : undefined}>
         {loading && !library && <div className="empty-state"><RefreshCw size={26} className="spin" /><h2>正在打开你的书架…</h2></div>}
         {authError && <div className="empty-state"><BookOpen size={36} /><h1>欢迎回到你的私人题库</h1><p>使用邮箱账号和密码登录，继续复习。</p><button className="primary" onClick={() => { if (local) void refresh(); else window.location.assign('/'); }}>重新登录</button></div>}
         {fatal && <div className="notice error"><p>{fatal}</p><button className="secondary" onClick={() => void refresh()}>重新连接</button></div>}
