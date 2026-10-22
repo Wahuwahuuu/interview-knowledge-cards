@@ -107,9 +107,12 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
   if (options.restore) {
     for (const table of ['relations', 'occurrences', 'card_topics', 'card_revisions', 'cards', 'sources', 'topics', 'projects']) statements.push(db.prepare(`DELETE FROM user_${table} WHERE user_id=?`).bind(userId));
   } else {
+    const remainingCards = new Set(target.cards.map(card => card.id));
     for (const kind of [...kinds].reverse()) {
       const nextIds = new Set(target[kind].map(v => v.id));
-      for (const old of base[kind]) if (!nextIds.has(old.id)) {
+      for (const old of base[kind]) if (!nextIds.has(old.id) || (kind === 'relations' && (!remainingCards.has((old as Library['relations'][number]).from_card_id) || !remainingCards.has((old as Library['relations'][number]).to_card_id)))) {
+        // A surviving relation may be reparented. Remove its old FK before deleting
+        // the parent card; the replacement is upserted below in the same transaction.
         if (kind === 'cards') {
           statements.push(db.prepare('DELETE FROM user_card_topics WHERE user_id=? AND card_id=?').bind(userId,old.id), db.prepare('DELETE FROM user_card_revisions WHERE user_id=? AND card_id=?').bind(userId,old.id));
         }

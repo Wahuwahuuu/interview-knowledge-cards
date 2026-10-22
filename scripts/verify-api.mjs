@@ -168,6 +168,24 @@ try {
   state = await apply({ ...beforeDeleteBackup, batch_id: 'recover-deleted-' + stamp });
   for (const kind of ['cards', 'sources', 'occurrences', 'relations', 'revisions']) assert.deepEqual(state[kind], beforeDelete[kind]);
   report('已有完整备份能够恢复已删除卡片及原有关系');
+  const promotionBackup = await ok('/export'), promotionIds = ['root', 'first', 'second'].map(name => 'promotion-' + name + '-' + stamp);
+  state = await apply({ schema_version: 1, batch_id: 'promotion-' + stamp,
+    cards: promotionIds.map(id => ({ id, project_id: card.project_id, title: id, question: id })),
+    relations: [
+      { id: 'promotion-second-' + stamp, from_card_id: promotionIds[0], to_card_id: promotionIds[2], kind: 'followup', order: 2 },
+      { id: 'promotion-first-' + stamp, from_card_id: promotionIds[0], to_card_id: promotionIds[1], kind: 'followup', order: 1 },
+    ],
+  });
+  const beforePromotion = await library();
+  await ok('/cards/' + promotionIds[0], 'DELETE', { expected_revision: beforePromotion.revision });
+  state = await library();
+  assert.deepEqual(state.cards, beforePromotion.cards.filter(value => value.id !== promotionIds[0]));
+  assert.ok(!state.relations.some(relation => relation.from_card_id === promotionIds[0] || relation.to_card_id === promotionIds[0]));
+  assert.ok(!state.relations.some(relation => relation.kind === 'followup' && relation.to_card_id === promotionIds[1]));
+  assert.equal(state.relations.find(relation => relation.id === 'promotion-second-' + stamp).from_card_id, promotionIds[1]);
+  assert.equal(state.relations.find(relation => relation.id === 'promotion-second-' + stamp).revision, 2);
+  report('删除主问题后第一条追问提升，其余追问关联持久保存，答案和状态不变');
+  state = await apply({ ...promotionBackup, batch_id: 'recover-promotion-' + stamp });
   const projectId = 'test-project-' + stamp;
   state = await ok('/changes', 'POST', { expected_revision: state.revision, changes: {
     schema_version: 1,

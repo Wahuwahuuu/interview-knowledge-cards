@@ -254,7 +254,7 @@ export default function App() {
   const deletionTitle = pendingDeletion?.kind === 'project' ? '删除这个项目？' : pendingDeletion?.kind === 'card' ? '删除这张知识卡？' : pendingDeletion?.kind === 'relation' ? '移除这条问题关联？' : '移除本机离线内容？';
   const deletionDescription = pendingDeletion?.kind === 'project'
     ? `将删除项目及其中全部 ${deleteCount} 张知识卡（包含归档卡片），并移除这些卡片的来源关联与问题连线。原始来源、共用知识点和其他项目会保留。删除后无法直接撤销，可通过此前的完整备份恢复。`
-    : pendingDeletion?.kind === 'card' ? '这张卡片及其来源关联与问题连线会一并移除，原始来源与其他卡片（包括追问）仍然保留。删除后无法直接撤销，可通过此前的完整备份恢复。'
+    : pendingDeletion?.kind === 'card' ? '这张卡片及其来源关联会移除，原始来源与其他卡片保留。若有追问，第一条未归档的追问将接替当前题，其余追问归到它下面；嵌套追问会接续原主问题关联。删除后无法直接撤销，可通过此前的完整备份恢复。'
     : pendingDeletion?.kind === 'relation' ? '将移除这两道题之间的连线，两张知识卡及答案都会保留。'
     : '将移除这个项目在当前设备上下载的离线内容，云端项目和知识卡会保留。之后可以重新下载。';
 
