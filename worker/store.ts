@@ -1,6 +1,7 @@
-import { AppError, canonical, cardSchema, kinds, librarySchema, projectSchema, revisionSchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
+import { AppError, canonical, cardSchema, kinds, projectSchema, revisionSchema, validateLibrary, type Library, type Kind, type Entity } from '../shared/model';
 import { cardState, type CardStateRequest, type CardStateResult } from '../shared/card-state';
 import { applyProjectOrder, type ProjectOrderRequest, type ProjectOrderResult } from '../shared/project-order';
+import { decodeStoredRecord } from './stored-records';
 
 export async function updateProjectOrder(db: D1Database, userId: string, input: ProjectOrderRequest): Promise<ProjectOrderResult> {
   const [meta, records] = await db.batch([
@@ -60,11 +61,11 @@ export async function readLibrary(db: D1Database, userId: string): Promise<Libra
   const queries = [db.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(userId), ...kinds.map(kind => db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? ORDER BY id`).bind(userId))];
   const results = await db.batch(queries);
   const values: Record<string, unknown> = { schema_version: 1, revision: (results[0].results[0] as { revision: number })?.revision ?? 0 };
-  kinds.forEach((kind, index) => { values[kind] = results[index + 1].results.map(row => JSON.parse((row as { payload: string }).payload)); });
+  kinds.forEach((kind, index) => { values[kind] = results[index + 1].results.map(row => decodeStoredRecord(kind, (row as { payload: string }).payload)); });
   // Daily reads and edits do not need every historical answer in memory.
   // commitLibrary appends new revisions without removing stored history.
   values.revisions = [];
-  return librarySchema.parse(values);
+  return values as Library;
 }
 
 export async function readCardHistory(db: D1Database, userId: string, cardId: string) {
@@ -119,7 +120,10 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
   for (const kind of kinds) {
     const old = new Map<string, Entity>((base[kind] as Entity[]).map(v => [v.id, v]));
     for (const value of target[kind]) {
-      if (!options.restore && canonical(old.get(value.id)) === canonical(value)) continue;
+      const previous = old.get(value.id);
+      // Cloned unchanged entities retain property order. Native serialization is
+      // much cheaper here than recursively sorting every key in the whole library.
+      if (!options.restore && (JSON.stringify(previous) === JSON.stringify(value) || canonical(previous) === canonical(value))) continue;
       statements.push(upsert(db, userId, kind, value));
       if (kind === 'cards') {
         statements.push(db.prepare('DELETE FROM user_card_topics WHERE user_id=? AND card_id=?').bind(userId,value.id));
