@@ -96,10 +96,13 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
         <h2><InlineMarkdown text={card.question} /></h2>
         {revealed ? <div className="practice-answer"><Markdown text={card.summary_md || card.answer_md} /><details className="answer-details" open={fullAnswerOpen} onToggle={event => setFullAnswerId(event.currentTarget.open ? card.id : null)}><summary>展开完整答案</summary>{fullAnswerOpen && <Markdown text={card.answer_md} />}</details></div> : <div className="reveal-area"><button className="primary" onClick={() => setRevealedId(card.id)}><BookOpen size={17} />揭晓答案</button></div>}
       </article>
-      {followups.length > 0 && <div className="practice-followups">
-        <div className="button-row">{followupIndex >= 0 ? <><button className="text-button" onClick={() => showQuestion()}>返回主问题</button><button className="text-button" onClick={() => showQuestion(followupIndex - 1)}><ArrowLeft size={14} />上一问</button></> : <span className="muted">这道主问题有 {followups.length} 条追问</span>}</div>
-        {followupIndex < followups.length - 1 ? <button className="secondary" onClick={() => showQuestion(followupIndex + 1)}>继续追问<ArrowRight size={16} /></button> : <span className="muted">本组追问已结束</span>}
-      </div>}
+      {/* 始终保留追问区，避免下一题按钮随追问显隐跳动。 */}
+      <div className="practice-followups">
+        {followups.length > 0 && <>
+          <div className="button-row">{followupIndex >= 0 ? <><button className="text-button" onClick={() => showQuestion()}>返回主问题</button><button className="text-button" onClick={() => showQuestion(followupIndex - 1)}><ArrowLeft size={14} />上一问</button></> : <span className="muted">这道主问题有 {followups.length} 条追问</span>}</div>
+          {followupIndex < followups.length - 1 ? <button className="secondary" onClick={() => showQuestion(followupIndex + 1)}>继续追问<ArrowRight size={16} /></button> : <span className="muted">本组追问已结束</span>}
+        </>}
+      </div>
       <div className="practice-actions">
         <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); showQuestion(); }}><ArrowLeft size={16} />上一题</button>
         <div className="button-row"><button className="secondary" aria-pressed={card.mastery === 'review'} disabled={offline || busy} onClick={() => void onMark(card, 'review')}>再复习一下</button><button className="primary" aria-pressed={card.mastery === 'mastered'} disabled={offline || busy} onClick={() => void onMark(card, 'mastered')}><Check size={16} />已掌握</button></div>

@@ -8,7 +8,8 @@
 .followup-content{padding:0 0 20px 18px;overflow-wrap:anywhere}
 .followup-content>h4{margin:4px 0 10px}
 .followup-content>.button-row{margin-top:16px;gap:10px 20px}
-.practice-followups{max-width:790px;margin:16px auto 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.practice-followups{max-width:790px;min-height:46px;margin:16px auto 0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px}
+.practice-followups>.button-row{flex-wrap:nowrap}
 .practice-followups .muted,.followup-content>.muted{color:#63725f}
 .practice-progress{flex-wrap:wrap;gap:10px}
 .practice-parent{font-size:13px;color:#63725f;margin:0 0 18px;line-height:1.8}

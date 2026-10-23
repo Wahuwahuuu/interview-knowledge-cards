@@ -2,7 +2,7 @@
 
 ## Windows 使用
 
-打开 `releases/Interview-Knowledge-Cards-2.0.3-Setup.exe` 安装，或直接运行同目录的 `Portable.exe`。安装包包含运行环境，不需要另外安装 Node、MySQL 或 SQLite 服务。升级程序不覆盖题库；卸载默认保留数据。便携版可以免安装运行，需要自动更新时使用安装版。
+打开 `releases/Interview-Knowledge-Cards-2.0.4-Setup.exe` 安装，或直接运行同目录的 `Portable.exe`。安装包包含运行环境，不需要另外安装 Node、MySQL 或 SQLite 服务。升级程序不覆盖题库；卸载默认保留数据。便携版可以免安装运行，需要自动更新时使用安装版。
 
 默认数据目录：`%APPDATA%\InterviewKnowledgeCards`。
 
