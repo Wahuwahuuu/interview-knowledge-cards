@@ -1,6 +1,8 @@
 # 面试知识卡 · Interview Knowledge Cards
 
-Windows 本地版使用 SQLite 保存完整题库；iPhone PWA 可离线编辑，连接电脑后双向同步。安装包、迁移、配对及维护方式见 [本地软件使用说明](docs/desktop.md)。原 Cloudflare 网页模式继续保留。
+线上网站继续作为日常使用入口：手机和电脑用同一账号访问已部署的 HTTPS 网站，共用线上题库；不需要电脑开机、连接同一个 Wi-Fi 或安装本机证书。iPhone 主屏幕使用方式见 [手机说明](docs/ios.md)。
+
+Windows 本地版与 SQLite 题库继续保留，作为独立的可选方式；配对的 iPhone PWA 可离线编辑，连接电脑后双向同步。安装包、迁移、配对及维护方式见 [本地软件使用说明](docs/desktop.md)。**本地题库与线上题库目前不自动同步**，切换数据来源前应先备份和核对，不能直接用其中一份覆盖另一份。
 
 [![CI](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml/badge.svg)](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/Wahuwahuuu/interview-knowledge-cards)](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)

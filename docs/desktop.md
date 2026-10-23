@@ -1,5 +1,7 @@
 # Windows 本地软件与 iPhone 离线编辑
 
+用户现继续使用、维护线上网站作为手机日常入口，参见 [iPhone 网站使用说明](ios.md)。线上网站不依赖电脑开机或同一 Wi-Fi，也不需要安装本机证书。下文保留的本地软件配对是可选方式；本地 SQLite 与线上题库目前不自动同步，已有数据分别保留，合并前先备份和核对。
+
 ## Windows 使用
 
 打开 `releases/Interview-Knowledge-Cards-2.0.4-Setup.exe` 安装，或直接运行同目录的 `Portable.exe`。安装包包含运行环境，不需要另外安装 Node、MySQL 或 SQLite 服务。升级程序不覆盖题库；卸载默认保留数据。便携版可以免安装运行，需要自动更新时使用安装版。
