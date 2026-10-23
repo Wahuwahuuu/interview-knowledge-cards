@@ -10,6 +10,7 @@ import { removeCard } from '../shared/card-actions';
 import { removeProject } from '../shared/project-actions';
 import { batchView, draft, getBatch, submitImport, type BatchRow } from './imports';
 import { handleCloudSync, isCloudSyncProtocol } from './cloud-sync';
+import { readJournal } from './change-journal';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -57,6 +58,7 @@ app.post('/api/v1/changes', async c => {
 });
 app.get('/api/v1/library', async c => c.json(await readLibrary(c.env.DB, c.get('identity').user_id)));
 app.get('/api/v1/library/revision', async c => c.json(await c.env.DB.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(c.get('identity').user_id).first() ?? {revision:0}));
+app.get('/api/v1/library/changes',async c=>c.json(await readJournal(c.env.DB,c.get('identity').user_id,Number(c.req.query('cursor')),c.req.query('epoch'))));
 app.put('/api/v1/projects/order', async c => {
   const input = projectOrderRequestSchema.parse(await body(c.req.raw));
   return c.json(await updateProjectOrder(c.env.DB, c.get('identity').user_id, input));

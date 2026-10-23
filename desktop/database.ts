@@ -19,9 +19,10 @@ export class LocalDatabase {
       const present = existing && this.raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(existing);
       const hasErrorColumn = file.startsWith('0003') && this.raw.prepare('PRAGMA table_info(user_import_batches)').all().some(row => row.name === 'error_message');
       const hasCloudSync = file.startsWith('0004') && this.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('cloud_sync_state','cloud_sync_codes','cloud_sync_devices','cloud_sync_receipts','cloud_sync_new_user','cloud_sync_credentials_changed')").get()?.n === 6;
+      const hasJournal = file.startsWith('0005') && this.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('library_changes','library_change_floor','library_change_relations_DELETE')").get()?.n === 3;
       this.raw.exec('BEGIN IMMEDIATE');
       try {
-        if (!present && !hasErrorColumn && !hasCloudSync) this.raw.exec(readFileSync(join(migrations, file), 'utf8'));
+        if (!present && !hasErrorColumn && !hasCloudSync && !hasJournal) this.raw.exec(readFileSync(join(migrations, file), 'utf8'));
         this.raw.prepare('INSERT INTO desktop_migrations VALUES (?)').run(file);
         this.raw.exec('COMMIT');
       } catch (error) { this.raw.exec('ROLLBACK'); throw error; }
@@ -35,6 +36,7 @@ export class LocalDatabase {
       CREATE TABLE IF NOT EXISTS sync_pairing(hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS sync_receipts(user_id TEXT NOT NULL,device_id TEXT NOT NULL,op_id TEXT NOT NULL,digest TEXT NOT NULL,result TEXT NOT NULL,PRIMARY KEY(user_id,device_id,op_id));
       CREATE TABLE IF NOT EXISTS desktop_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS website_sync_baseline(user_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT,remote_revision INTEGER NOT NULL,PRIMARY KEY(user_id,kind,id));
       CREATE TRIGGER IF NOT EXISTS sync_new_user AFTER INSERT ON users BEGIN INSERT INTO sync_state VALUES(NEW.id,lower(hex(randomblob(16)))); END;
       CREATE TRIGGER IF NOT EXISTS sync_credentials_changed AFTER UPDATE OF password_hash,status ON users
       WHEN OLD.password_hash IS NOT NEW.password_hash OR NEW.status='disabled'

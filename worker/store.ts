@@ -91,7 +91,7 @@ export async function exportLibrary(db: D1Database, userId: string): Promise<Rea
   return new ReadableStream({ pull(controller) { const next = iterator.next(); if (next.done) controller.close(); else controller.enqueue(encoder.encode(next.value)); } });
 }
 
-function upsert(db: D1Database, userId: string, kind: Kind, value: Entity): D1PreparedStatement {
+export function upsert(db: D1Database, userId: string, kind: Kind, value: Entity): D1PreparedStatement {
   const extra = kind === 'cards' ? ['project_id'] : kind === 'occurrences' ? ['card_id', 'source_id'] : kind === 'relations' ? ['from_card_id', 'to_card_id'] : [];
   const record = value as unknown as Record<string, unknown>;
   const columns = ['user_id', 'id', 'revision', 'payload', ...extra];

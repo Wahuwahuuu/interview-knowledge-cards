@@ -4,7 +4,7 @@ import { canLinkFollowup } from './followups';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/);
 export const syncChangeSchema = z.object({ kind: z.enum(kinds), id, before: z.record(z.string(), z.unknown()).nullable(), after: z.record(z.string(), z.unknown()).nullable() }).strict();
-export const syncOperationSchema = z.object({ id, epoch: id, changes: z.array(syncChangeSchema).max(10_000), record: z.unknown().optional(), input: z.unknown().optional() }).strict();
+export const syncOperationSchema = z.object({ id, epoch: id, changes: z.array(syncChangeSchema).max(10_000), cursor:z.number().int().nonnegative().optional(), record: z.unknown().optional(), input: z.unknown().optional() }).strict();
 export type SyncChange = z.infer<typeof syncChangeSchema>;
 export type SyncOperation = z.infer<typeof syncOperationSchema>;
 export type SyncConflict = { kind: string; id: string; field: string; before: unknown; computer: unknown; phone: unknown };

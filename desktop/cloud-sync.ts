@@ -8,11 +8,13 @@ import { changesBetween, mergeOperation, type SyncOperation, type SyncResult, ty
 import { assertOrigin, authenticate, resolveIdentity, type Env } from '../worker/auth';
 import { commitLibrary, readLibrary } from '../worker/store';
 import type { LocalDatabase } from './database';
+import { CloudDeltaEngine, type DeltaState } from './cloud-delta';
+import { kinds, schemas } from '../shared/model';
 
 export type SecretCodec = { encrypt(value:string):Promise<string>; decrypt(value:string):Promise<string> };
 type Locked = <T>(work:()=>Promise<T>)=>Promise<T>;
 type ConflictState = { id:string; values:SyncConflict[]; direction:'pull'|'push'; remote:Library; localRevision:number };
-type Link = { site:string; proxy?:string; deviceId:string; account:CloudAccount; secret:string; baseline:Library; epoch:string; remoteRevision:number; localEpoch:string; localRevision:number; enabled:boolean; review:boolean; lastSync?:string; error?:string; errorCode?:string; inflight?:CloudInflight; conflict?:ConflictState; localCards:number; remoteCards:number };
+type Link = DeltaState & { site:string; proxy?:string; deviceId:string; account:CloudAccount; secret:string; baseline:Library; epoch:string; remoteRevision:number; localEpoch:string; localRevision:number; enabled:boolean; review:boolean; lastSync?:string; error?:string; errorCode?:string; inflight?:CloudInflight; conflict?:ConflictState; localCards:number; remoteCards:number };
 type Options = { codec?:SecretCodec; fetch?:typeof fetch; allowTestLoopback?:boolean; autoStart?:boolean; intervalMs?:number };
 const daily = (library:Library):Library => ({...library,revisions:[]});
 const active = (library:Library)=>library.cards.filter(c=>!c.archived).length;
@@ -56,8 +58,10 @@ export class DesktopCloudSync {
   private codec:SecretCodec; private running=new Map<string,Promise<void>>(); private controllers=new Set<AbortController>();
   private timer?:ReturnType<typeof setInterval>; private changedTimer?:ReturnType<typeof setTimeout>; private stopped=false;
   private retry=new Map<string,number>(); private tokens=new Map<string,string>(); private proxies=new Map<string,ProxyAgent>();
+  private delta:CloudDeltaEngine<Link>;
   constructor(private db:LocalDatabase,private env:Env,private locked:Locked,private dataDir:string,private options:Options={}) {
     this.codec=options.codec??windowsCodec;
+    this.delta=new CloudDeltaEngine(db,locked,user=>this.get(user),(user,link)=>this.save(user,link),(link,action,value)=>this.call(link,action,value));
     if(options.autoStart!==false)this.start();
   }
   private key(user:string){return 'website-sync:'+user;}
@@ -87,21 +91,22 @@ export class DesktopCloudSync {
       if(!response.ok)throw new AppError(response.status,data.error?.message??'网站同步尚未完成',data.error?.code??'CLOUD_CONNECTION');
       if(action==='connect')z.object({token:z.string().regex(/^[a-f0-9]{64}$/),deviceId:z.string().min(1).max(128),account:z.object({user_id:z.string().min(1).max(128),email:z.string().min(1).max(255),display_name:z.string().max(120)})}).parse(data);
       if(action.startsWith('snapshot')){const snapshot=data as CloudSnapshot;z.object({epoch:z.string().min(1).max(128),revision:z.number().int().nonnegative()}).parse(snapshot);if(snapshot.library){snapshot.library=librarySchema.parse(snapshot.library);validateLibrary(snapshot.library);}}
+      if(action==='head'||action.startsWith('pull')||action==='records'||action==='push'&&'records' in data){const value=data as unknown as {epoch:string;revision:number;cursor?:number;hasMore?:boolean;records?:{kind:typeof kinds[number];id:string;value:Entity|null;revision?:number}[]};z.object({epoch:z.string().min(1).max(128),revision:z.number().int().nonnegative(),cursor:z.number().int().nonnegative().optional(),hasMore:z.boolean().optional()}).parse(value);if(action.startsWith('pull')&&(value.cursor===undefined||value.hasMore===undefined))throw new AppError(502,'增量回执缺少同步位置','CLOUD_PROTOCOL');if(action!=='head'&&!Array.isArray(value.records))throw new AppError(502,'增量回执缺少记录','CLOUD_PROTOCOL');for(const record of value.records??[]){z.object({kind:z.enum(kinds),id:z.string(),revision:z.number().int().nonnegative().optional()}).parse(record);if(record.value){record.value=schemas[record.kind].parse(record.value);if(record.value.id!==record.id)throw new AppError(502,'增量记录不匹配','CLOUD_PROTOCOL');}}}
       return data as T;
     }catch(error){if(error instanceof AppError)throw error;throw new AppError(503,'暂时无法连接网站，本地修改已保留，联网后会自动重试；必要时检查本机代理设置','CLOUD_CONNECTION');}
     finally{clearTimeout(timeout);this.controllers.delete(controller);}
   }
   async status(user:string):Promise<CloudSyncStatus>{return this.locked(async()=>{
     const link=this.get(user);if(!link)return{connected:false,enabled:false,phase:'unlinked'};
-    const pending=!!link.inflight||link.localRevision!==this.revision(user);
-    const phase:CloudSyncStatus['phase']=link.review?'review':link.errorCode?.includes('EPOCH')?'recovery':link.conflict?'conflict':!link.enabled?'paused':this.running.has(user)?'syncing':link.error?'error':pending?'pending':'idle';
-    const conflicts=link.conflict?.values.map(value=>{
+    const pending=!!link.inflight||!!link.deltaPending||!!link.deltaMore||!!link.deltaRetry?.length||link.localRevision!==this.revision(user);
+    const phase:CloudSyncStatus['phase']=link.review?'review':link.errorCode?.includes('EPOCH')?'recovery':link.conflict||link.deltaConflict?'conflict':!link.enabled?'paused':this.running.has(user)?'syncing':link.error?'error':pending?'pending':'idle';
+    const conflicts=(link.deltaConflict?.values??link.conflict?.values)?.map(value=>{
       if(value.kind!=='cards')return value;
       const row=this.db.raw.prepare('SELECT payload FROM user_cards WHERE user_id=? AND id=?').get(user,value.id);
-      const card=row?JSON.parse(String(row.payload)):link.conflict!.remote.cards.find(card=>card.id===value.id)??link.inflight?.sent.cards.find(card=>card.id===value.id);
+      const card=row?JSON.parse(String(row.payload)):link.deltaConflict?.records.find(record=>record.kind==='cards'&&record.id===value.id)?.value??link.conflict?.remote.cards.find(card=>card.id===value.id)??link.inflight?.sent.cards.find(card=>card.id===value.id);
       return {...value,label:card?.question||card?.title};
     });
-    return{connected:true,enabled:link.enabled,phase,site:link.site,proxy:link.proxy,account:link.account,lastSync:link.lastSync,error:link.error,errorCode:link.errorCode,pending,conflicts,localCards:link.localCards,remoteCards:link.remoteCards};
+    return{connected:true,enabled:link.enabled,phase,site:link.site,proxy:link.proxy,account:link.account,lastSync:link.lastSync,error:link.error,errorCode:link.errorCode,pending,conflicts,localCards:link.localCards,remoteCards:link.remoteCards,incremental:link.protocol===2};
   });}
   async connect(user:string,values:{site:string;code:string;name:string;proxy?:string}) {
     let site:string;try{site=websiteOrigin(values.site,this.options.allowTestLoopback);}catch(error){throw new AppError(422,error instanceof Error?error.message:'网站地址不正确');}const proxy=proxyAddress(values.proxy);
@@ -135,9 +140,23 @@ export class DesktopCloudSync {
     });this.kick(user);return this.status(user);
   }
   async pause(user:string){await this.locked(async()=>{const link=this.get(user);if(link){link.enabled=false;this.save(user,link);}});return this.status(user);}
+  async reviewRestore(user:string){
+    if(this.running.has(user))throw new AppError(409,'请等本次同步结束后重新核对');
+    const link=await this.locked(async()=>this.get(user));if(!link?.errorCode?.includes('EPOCH'))throw new AppError(409,'当前题库没有需要重新核对的恢复操作');
+    const remote=await this.call<CloudSnapshot>(link,'snapshot');if(!remote.library)throw new AppError(502,'完整核对快照尚未读取完成');
+    await this.locked(async()=>this.db.transaction(async()=>{
+      const current=this.get(user);if(!current||current.deviceId!==link.deviceId)throw new AppError(409,'连接已改变，请重新检查');
+      await this.db.saveBackup(join(this.dataDir,'backups',`before-sync-recovery-${Date.now()}.sqlite`));
+      const common=emptyLibrary();
+      if(current.protocol===2){for(const row of this.db.raw.prepare('SELECT kind,payload FROM website_sync_baseline WHERE user_id=? AND payload IS NOT NULL').all(user))(common[row.kind as typeof kinds[number]] as Entity[]).push(JSON.parse(String(row.payload)));}else Object.assign(common,current.baseline);
+      const local=await readLibrary(this.db.asD1(),user);
+      current.baseline=common;current.epoch=remote.epoch;current.localEpoch=this.epoch(user);current.remoteRevision=-1;current.localRevision=local.revision;current.localCards=active(local);current.remoteCards=active(remote.library!);
+      current.enabled=false;current.review=true;current.protocol=undefined;current.inflight=undefined;current.conflict=undefined;current.deltaPending=undefined;current.deltaConflict=undefined;current.deltaRetry=undefined;current.deltaMore=undefined;current.error=undefined;current.errorCode=undefined;this.save(user,current);
+    }));return this.status(user);
+  }
   async network(user:string,proxy:string|undefined){await this.locked(async()=>{const link=this.get(user);if(!link)throw new AppError(404,'尚未连接网站');link.proxy=proxyAddress(proxy);if(!link.errorCode?.includes('EPOCH')){link.error=undefined;link.errorCode=undefined;}this.save(user,link);});this.retry.delete(user);this.kick(user);return this.status(user);}
   async disconnect(user:string){if(this.running.has(user))throw new AppError(409,'正在同步，请先暂停并等待本次操作结束');const link=await this.locked(async()=>this.get(user));if(!link)return this.status(user);try{await this.call(link,'disconnect',{confirmed:true});}catch(error){if(!(error instanceof AppError&&error.code==='CLOUD_RECONNECT'))throw error;}
-    await this.locked(async()=>this.db.raw.prepare('DELETE FROM desktop_settings WHERE key=?').run(this.key(user)));this.tokens.delete(link.secret);return this.status(user);
+    await this.locked(async()=>{this.db.raw.prepare('DELETE FROM desktop_settings WHERE key=?').run(this.key(user));this.db.raw.prepare('DELETE FROM website_sync_baseline WHERE user_id=?').run(user);});this.tokens.delete(link.secret);return this.status(user);
   }
   private async recordError(user:string,error:unknown){if(this.stopped)return;this.retry.set(user,Date.now()+60000);await this.locked(async()=>{const link=this.get(user);if(link){link.error=error instanceof AppError?error.message:'同步尚未完成，本地修改仍保留';link.errorCode=error instanceof AppError?error.code:'CLOUD_CONNECTION';this.save(user,link);}});}
   private async pending(user:string,link:Link) {
@@ -153,7 +172,17 @@ export class DesktopCloudSync {
       current.baseline=daily(current.inflight.sent);current.localRevision=current.inflight.localRevision;current.remoteRevision=-1;current.inflight=undefined;current.error=undefined;current.errorCode=undefined;current.lastSync=new Date().toISOString();this.save(user,current);return true;
     });
   }
-  private async cycle(user:string) {
+  private async cycle(user:string){
+    try{
+      let link=await this.locked(async()=>this.db.raw.prepare('SELECT status FROM users WHERE id=?').get(user)?.status==='active'?this.get(user):undefined);
+      if(!link?.enabled||link.review||link.errorCode?.includes('EPOCH')||this.stopped)return;
+      if(link.protocol===2){if(this.epoch(user)!==link.localEpoch)throw new AppError(409,'本机题库已恢复备份，请重新核对','LOCAL_EPOCH_CHANGED');if(!link.deltaConflict)await this.delta.cycle(user,link);return;}
+      if(!link.inflight&&!link.conflict&&link.remoteRevision>=0&&await this.delta.initialize(user,link)){link=(await this.locked(async()=>this.get(user)))!;await this.delta.cycle(user,link);return;}
+      await this.legacyCycle(user);link=await this.locked(async()=>this.get(user));
+      if(link?.enabled&&!link.review&&!link.conflict&&!link.inflight&&!link.error&&link.remoteRevision>=0)await this.delta.initialize(user,link);
+    }catch(error){await this.recordError(user,error);}
+  }
+  private async legacyCycle(user:string) {
     try {
       let link=await this.locked(async()=>{if(this.db.raw.prepare('SELECT status FROM users WHERE id=?').get(user)?.status!=='active')return undefined;const value=this.get(user);if(value&&value.enabled&&!value.review&&!value.conflict&&this.epoch(user)!==value.localEpoch)throw new AppError(409,'本机题库已恢复备份，请重新连接并核对；网站不会自动覆盖本机','LOCAL_EPOCH_CHANGED');return value;});
       if(!link?.enabled||link.review||link.conflict||link.errorCode?.includes('EPOCH')||this.stopped)return;
@@ -181,7 +210,7 @@ export class DesktopCloudSync {
   }
   async resolve(user:string,choice:'local'|'remote') {
     if(this.running.has(user))throw new AppError(409,'正在同步，请稍后处理');
-    const link=await this.locked(async()=>this.get(user));if(!link?.conflict)throw new AppError(409,'冲突已改变，请重新检查');
+    const link=await this.locked(async()=>this.get(user));if(link?.protocol===2){await this.delta.resolve(user,choice);this.kick(user);return this.status(user);}if(!link?.conflict)throw new AppError(409,'冲突已改变，请重新检查');
     const remote=await this.call<CloudSnapshot>(link,'snapshot');if(!remote.library)throw new AppError(502,'网站题库未读取完成');
     await this.locked(async()=>this.db.transaction(async()=>{
       const current=this.get(user);if(current?.conflict?.id!==link.conflict!.id)throw new AppError(409,'冲突已改变，请重新检查');
@@ -201,7 +230,7 @@ export class DesktopCloudSync {
       current.baseline=daily(remote.library!);current.remoteRevision=remote.revision;current.conflict=undefined;current.inflight=undefined;current.error=undefined;current.errorCode=undefined;this.save(user,current);
     }));this.kick(user);return this.status(user);
   }
-  async recheck(user:string){await this.locked(async()=>{const link=this.get(user);if(link){if(link.conflict?.direction==='push')link.inflight=undefined;link.conflict=undefined;link.error=undefined;this.save(user,link);}});this.kick(user);return this.status(user);}
+  async recheck(user:string){const link=await this.locked(async()=>this.get(user));if(link?.protocol===2)await this.delta.recheck(user);else await this.locked(async()=>{const link=this.get(user);if(link){if(link.conflict?.direction==='push')link.inflight=undefined;link.conflict=undefined;link.error=undefined;this.save(user,link);}});this.kick(user);return this.status(user);}
   async handle(request:Request,origin:string) {
     if(new URL(request.url).origin!==origin)throw new AppError(403,'请在电脑客户端配置网站同步');
     assertOrigin(request,this.env);
@@ -214,6 +243,7 @@ export class DesktopCloudSync {
     if(action==='/connect')result=await this.connect(user,z.object({site:z.string().max(512),code:z.string().trim().regex(/^[a-f0-9]{64}$/),name:z.string().trim().min(1).max(80),proxy:z.string().max(128).optional()}).strict().parse(value));
     else if(action==='/enable'){confirmed.parse(value);result=await this.enable(user);}
     else if(action==='/pause'){z.object({}).strict().parse(value);result=await this.pause(user);}
+    else if(action==='/review-restore'){confirmed.parse(value);result=await this.reviewRestore(user);}
     else if(action==='/network'){const v=z.object({proxy:z.string().max(128).optional()}).strict().parse(value);result=await this.network(user,v.proxy);}
     else if(action==='/now'){z.object({}).strict().parse(value);this.kick(user);result=await this.status(user);}
     else if(action==='/disconnect'){confirmed.parse(value);result=await this.disconnect(user);}

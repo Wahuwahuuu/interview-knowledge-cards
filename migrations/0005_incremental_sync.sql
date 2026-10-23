@@ -1,0 +1,34 @@
+-- Journal entries use the existing account revision as the committed transaction cursor.
+CREATE TABLE library_change_floor(user_id TEXT PRIMARY KEY REFERENCES users(id),revision INTEGER NOT NULL);
+INSERT INTO library_change_floor SELECT user_id,revision FROM user_library_meta;
+CREATE TABLE library_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT,user_id TEXT NOT NULL REFERENCES users(id),revision INTEGER NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,payload TEXT);
+CREATE INDEX library_changes_cursor ON library_changes(user_id,revision,seq);
+CREATE TABLE cloud_sync_receipt_records(user_id TEXT NOT NULL,device_id TEXT NOT NULL,op_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,payload TEXT,position INTEGER NOT NULL,PRIMARY KEY(user_id,device_id,op_id,kind,id),FOREIGN KEY(user_id,device_id,op_id) REFERENCES cloud_sync_receipts(user_id,device_id,op_id));
+CREATE TRIGGER library_change_new_user AFTER INSERT ON user_library_meta BEGIN INSERT INTO library_change_floor VALUES(NEW.user_id,NEW.revision); END;
+CREATE TRIGGER library_change_restore AFTER UPDATE OF epoch ON cloud_sync_state WHEN OLD.epoch IS NOT NEW.epoch BEGIN
+  DELETE FROM library_changes WHERE user_id=NEW.user_id;
+  UPDATE library_change_floor SET revision=(SELECT revision+1 FROM user_library_meta WHERE user_id=NEW.user_id) WHERE user_id=NEW.user_id;
+END;
+CREATE INDEX user_relations_from ON user_relations(user_id,from_card_id);
+CREATE INDEX user_relations_to ON user_relations(user_id,to_card_id);
+CREATE INDEX user_projects_name ON user_projects(user_id,trim(json_extract(payload,'$.name')));
+CREATE INDEX user_topics_name ON user_topics(user_id,json_extract(payload,'$.name'));
+CREATE INDEX user_card_topics_topic ON user_card_topics(user_id,topic_id);
+CREATE TRIGGER library_change_projects_INSERT AFTER INSERT ON user_projects BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'projects',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_projects_UPDATE AFTER UPDATE ON user_projects BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'projects',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_projects_DELETE AFTER DELETE ON user_projects BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'projects',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;
+CREATE TRIGGER library_change_topics_INSERT AFTER INSERT ON user_topics BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'topics',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_topics_UPDATE AFTER UPDATE ON user_topics BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'topics',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_topics_DELETE AFTER DELETE ON user_topics BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'topics',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;
+CREATE TRIGGER library_change_sources_INSERT AFTER INSERT ON user_sources BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'sources',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_sources_UPDATE AFTER UPDATE ON user_sources BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'sources',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_sources_DELETE AFTER DELETE ON user_sources BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'sources',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;
+CREATE TRIGGER library_change_cards_INSERT AFTER INSERT ON user_cards BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'cards',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_cards_UPDATE AFTER UPDATE ON user_cards BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'cards',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_cards_DELETE AFTER DELETE ON user_cards BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'cards',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;
+CREATE TRIGGER library_change_occurrences_INSERT AFTER INSERT ON user_occurrences BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'occurrences',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_occurrences_UPDATE AFTER UPDATE ON user_occurrences BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'occurrences',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_occurrences_DELETE AFTER DELETE ON user_occurrences BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'occurrences',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;
+CREATE TRIGGER library_change_relations_INSERT AFTER INSERT ON user_relations BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'relations',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_relations_UPDATE AFTER UPDATE ON user_relations BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT NEW.user_id,revision+1,'relations',NEW.id,NEW.payload FROM user_library_meta WHERE user_id=NEW.user_id; END;
+CREATE TRIGGER library_change_relations_DELETE AFTER DELETE ON user_relations BEGIN INSERT INTO library_changes(user_id,revision,kind,id,payload) SELECT OLD.user_id,revision+1,'relations',OLD.id,NULL FROM user_library_meta WHERE user_id=OLD.user_id; END;

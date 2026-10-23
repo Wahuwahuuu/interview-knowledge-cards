@@ -1,12 +1,15 @@
 import { z } from 'zod';
-import { AppError, canonical } from '../shared/model';
-import { mergeOperation, syncOperationSchema, type SyncResult } from '../shared/sync';
-import type { CloudAccount, CloudLinkReply, CloudSnapshot } from '../shared/cloud-sync';
+import { AppError, canonical, kinds } from '../shared/model';
+import { syncOperationSchema } from '../shared/sync';
+import type { CloudAccount, CloudLinkReply, CloudSnapshot, CloudPushResult } from '../shared/cloud-sync';
 import { tokenHash, type Env, type Identity } from './auth';
-import { commitLibrary, readLibrary } from './store';
+import { readLibrary } from './store';
+import { journalHead, readJournal, readRecords } from './change-journal';
+import { commitIncremental, planIncremental } from './incremental-store';
+import { recordKey, type SyncRecord } from '../shared/record-sync';
 
 const prefix = '/api/v1/device-sync/';
-const protocol = new Set(['connect','snapshot','push','disconnect']);
+const protocol = new Set(['connect','snapshot','pull','records','head','push','disconnect']);
 export const isCloudSyncProtocol = (path: string) => path.startsWith(prefix) && protocol.has(path.slice(prefix.length));
 const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2,'0')).join('');
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control':'private, no-store', 'Referrer-Policy':'no-referrer' } });
@@ -64,8 +67,16 @@ export async function handleCloudSync(request: Request, env: Env, identity?: Ide
     return json({token,deviceId:id,account} satisfies CloudLinkReply);
   }
   const linked = await device(request,env), user = linked.user_id;
+  if(action==='head'&&request.method==='GET')return json(await journalHead(env.DB,user));
+  if(action==='pull'&&request.method==='GET')return json(await readJournal(env.DB,user,Number(url.searchParams.get('cursor')),url.searchParams.get('epoch')??undefined));
+  if(action==='records'&&request.method==='POST'){
+    const values=z.object({keys:z.array(z.object({kind:z.enum(kinds),id:z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/)}).strict()).max(10000)}).strict().parse(await input(request));
+    const meta=await journalHead(env.DB,user),records=await readRecords(env.DB,user,values.keys),after=await journalHead(env.DB,user);
+    if(meta.epoch!==after.epoch||meta.revision!==after.revision)throw new AppError(409,'网站刚有修改，请重新检查','REVISION_CONFLICT');
+    return json({...meta,records});
+  }
   if (action === 'snapshot' && request.method === 'GET') {
-    const meta = await head(env,user);
+    const meta = await journalHead(env.DB,user);
     if (url.searchParams.get('revision') === String(meta.revision) && url.searchParams.get('epoch') === meta.epoch) return json({...meta,unchanged:true} satisfies CloudSnapshot);
     const library = await readLibrary(env.DB,user), after = await head(env,user);
     if (library.revision !== after.revision || meta.epoch !== after.epoch) throw new AppError(409,'网站刚有更新，将自动重新读取','SNAPSHOT_CHANGED');
@@ -81,18 +92,26 @@ export async function handleCloudSync(request: Request, env: Env, identity?: Ide
     if (operation.record !== undefined || operation.input !== undefined) throw new AppError(403,'网站同步仅接受题库修改，不接受导入记录或账户操作');
     const digest = await tokenHash(canonical(operation));
     const receipt = await env.DB.prepare('SELECT digest,result FROM cloud_sync_receipts WHERE user_id=? AND device_id=? AND op_id=?').bind(user,linked.id,operation.id).first<{digest:string;result:string}>();
-    if (receipt) { if(receipt.digest!==digest) throw new AppError(409,'操作编号已用于其他内容'); return json(JSON.parse(receipt.result)); }
+    if (receipt) {
+      if(receipt.digest!==digest)throw new AppError(409,'操作编号已用于其他内容');
+      const saved=JSON.parse(receipt.result);
+      if(saved.recordsStored){const rows=await env.DB.prepare('SELECT kind,id,revision,payload FROM cloud_sync_receipt_records WHERE user_id=? AND device_id=? AND op_id=? ORDER BY position').bind(user,linked.id,operation.id).all<{kind:typeof kinds[number];id:string;revision:number;payload:string|null}>();saved.records=rows.results.map(row=>({kind:row.kind,id:row.id,revision:row.revision,value:row.payload===null?null:JSON.parse(row.payload)}));delete saved.recordsStored;}
+      return json(saved);
+    }
     const meta = await head(env,user);
     if (meta.epoch !== operation.epoch) throw new AppError(409,'网站题库已恢复备份，需要重新核对；本地修改仍保留','CLOUD_EPOCH_CHANGED');
-    const base = await readLibrary(env.DB,user), merged = mergeOperation(base,operation);
-    const result: SyncResult = {id:operation.id,status:merged.conflicts.length?'conflict':'applied',conflicts:merged.conflicts};
+    const merged = await planIncremental(env.DB,user,operation.changes);
+    const saved=new Map(merged.current.map(row=>[recordKey(row),row]));for(const row of merged.changes)saved.set(recordKey(row),{kind:row.kind,id:row.id,value:row.after as SyncRecord['value']});
+    const revision=meta.revision+(merged.changes.length?1:0);
+    const result: CloudPushResult = {id:operation.id,status:merged.conflicts.length?'conflict':'applied',conflicts:merged.conflicts,epoch:meta.epoch,revision,records:merged.conflicts.length?[]:[...saved.values()].map(row=>({...row,revision})),caughtUp:operation.cursor===meta.revision};
     if (!merged.conflicts.length) {
       const guard = crypto.randomUUID();
-      await commitLibrary(env.DB,user,base,merged.target,{extra:[
+      await commitIncremental(env.DB,user,meta.revision,merged.changes,[
         env.DB.prepare("INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT epoch FROM cloud_sync_state WHERE user_id=?)=? AND EXISTS(SELECT 1 FROM cloud_sync_devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND d.user_id=? AND u.status='active' AND d.expires_at>?) THEN 1 ELSE 0 END)").bind(user,guard,user,operation.epoch,linked.id,user,new Date().toISOString()),
-        env.DB.prepare('INSERT INTO cloud_sync_receipts(user_id,device_id,op_id,digest,result) VALUES (?,?,?,?,?)').bind(user,linked.id,operation.id,digest,JSON.stringify(result)),
+        env.DB.prepare('INSERT INTO cloud_sync_receipts(user_id,device_id,op_id,digest,result) VALUES (?,?,?,?,?)').bind(user,linked.id,operation.id,digest,JSON.stringify({...result,records:[],recordsStored:true})),
+        ...result.records.map((row,index)=>env.DB.prepare('INSERT INTO cloud_sync_receipt_records(user_id,device_id,op_id,kind,id,revision,payload,position) VALUES (?,?,?,?,?,?,?,?)').bind(user,linked.id,operation.id,row.kind,row.id,row.revision,row.value?JSON.stringify(row.value):null,index)),
         env.DB.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(user,guard),
-      ]});
+      ]);
     }
     return json(result);
   }

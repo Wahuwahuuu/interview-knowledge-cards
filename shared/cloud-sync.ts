@@ -1,5 +1,6 @@
 import type { Library } from './model';
 import type { SyncConflict, SyncOperation } from './sync';
+import type { SyncRecord } from './record-sync';
 
 export type CloudAccount = { user_id: string; email: string; display_name: string };
 export type CloudSnapshot = { epoch: string; revision: number; library?: Library; unchanged?: boolean };
@@ -8,9 +9,11 @@ export type CloudConflict = SyncConflict & { label?: string };
 export type CloudSyncStatus = {
   connected: boolean; enabled: boolean; phase: 'unlinked' | 'review' | 'paused' | 'syncing' | 'idle' | 'pending' | 'error' | 'conflict' | 'recovery';
   site?: string; proxy?: string; account?: CloudAccount; lastSync?: string; error?: string; errorCode?: string;
-  pending?: boolean; conflicts?: CloudConflict[]; localCards?: number; remoteCards?: number;
+  pending?: boolean; conflicts?: CloudConflict[]; localCards?: number; remoteCards?: number; incremental?: boolean;
 };
 export type CloudInflight = { operation: SyncOperation; sent: Library; localRevision: number };
+export type CloudDelta = { epoch: string; revision: number; cursor: number; hasMore: boolean; records: SyncRecord[] };
+export type CloudPushResult = { id: string; status: 'applied'|'conflict'; conflicts: SyncConflict[]; epoch: string; revision: number; records: SyncRecord[]; caughtUp: boolean };
 
 export function websiteOrigin(value: string, allowTestLoopback = false) {
   let url: URL;

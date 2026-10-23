@@ -26,6 +26,8 @@ import { ProjectNavigation } from './ProjectNavigation';
 import { filterQuestionGroups, questionGroups } from '../shared/question-groups';
 import { editableOffline, runtimeMode } from './local-replica';
 import { SyncBadge } from './SyncView';
+import { applyLibraryDelta } from '../shared/apply-delta';
+import type { CloudDelta } from '../shared/cloud-sync';
 
 type Page = 'home' | 'projects' | 'project' | 'graph' | 'practice' | 'manage';
 type Editor = { kind: Kind | 'appearance' | 'link' | 'followup'; value: Entity; expectedRevision: number };
@@ -121,9 +123,10 @@ export default function App() {
     let stopped=false,fetching=false;
     const blocked=()=>stopped||document.hidden||!navigator.onLine||backgroundGuard.current.dirty||backgroundGuard.current.busy||backgroundGuard.current.loading||cardSaves.queue.hasPending||projectOrderBusy.current;
     const poll=async()=>{if(fetching||blocked())return;fetching=true;const sequence=refreshSequence.current;try{
-      const meta=await api<{revision:number}>('/library/revision');
-      if(!blocked()&&meta.revision!==backgroundGuard.current.revision){const next=await loadLibrary();if(!blocked()&&sequence===refreshSequence.current&&next.revision>=Number(backgroundGuard.current.revision??0))setLibrary(next);}
-    }catch{/* Keep the current library and any draft during a temporary network failure. */}finally{fetching=false;}};
+      const cursor=backgroundGuard.current.revision;if(cursor===undefined)return;
+      const delta=await api<CloudDelta>(`/library/changes?cursor=${cursor}`);
+      if(!blocked()&&sequence===refreshSequence.current&&delta.cursor>cursor)setLibrary(current=>current?.revision===cursor?applyLibraryDelta(current,delta):current);
+    }catch(error){if(!blocked()&&sequence===refreshSequence.current&&error instanceof ApiError&&['SYNC_INITIALIZATION_REQUIRED','CLOUD_EPOCH_CHANGED','INVALID_SYNC_CURSOR'].includes(error.code)){try{const next=await loadLibrary();if(!blocked()&&sequence===refreshSequence.current&&next.revision>=Number(backgroundGuard.current.revision??0))setLibrary(next);}catch{/* Keep the current library while a restore reload is unavailable. */}}}finally{fetching=false;}};
     const timer=setInterval(()=>void poll(),runtimeMode()==='desktop'?5000:10000);
     window.addEventListener('focus',poll);document.addEventListener('visibilitychange',poll);
     return()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',poll);document.removeEventListener('visibilitychange',poll);};

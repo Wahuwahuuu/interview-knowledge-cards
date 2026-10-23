@@ -4,6 +4,8 @@
 
 Windows 客户端使用本地 SQLite，2.1.0 起可与网站自动双向同步。网站「设置 → 网站同步」生成连接码，在客户端填写网站地址和连接码，核对账号与题库数量，确认首次合并后启用。手机在网站修改题目和答案，电脑联网且软件运行时自动接收；电脑离线修改保存在本地，联网后自动上传，不要求同一 Wi-Fi。首次合并前自动备份，同字段冲突保留双方供选择。详见 [自动同步说明](docs/cloud-sync.md) 和 [本地软件说明](docs/desktop.md)。未连接的两份题库保持独立，不直接覆盖。
 
+**2.2.0 使用增量同步**：空闲只检查账户游标，普通更新仅拉取变更记录；上传按记录合并和校验必要引用，成功后无需全量复核。网页和客户端的后台刷新也使用增量。已有连接自动迁移，保留原题库、设备授权和待发送修改，不用重新配对。首次连接或恢复后核对才读取完整快照。
+
 [![CI](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml/badge.svg)](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/Wahuwahuuu/interview-knowledge-cards)](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
