@@ -29,10 +29,10 @@ export function mergeOperation(base: Library, operation: SyncOperation, now = ne
   const conflicts: SyncConflict[] = [], envelope = importSchema.parse({ schema_version: 1 });
   const target: Library = structuredClone({ ...base, revisions: [] });
   for (const change of operation.changes) {
-    const { kind, id, before, after } = change;
+    const { kind, id } = change;
+    const before = change.before ? schemas[kind].parse(change.before) as unknown as Record<string,unknown> : null;
+    const after = change.after ? schemas[kind].parse(change.after) as unknown as Record<string,unknown> : null;
     if (before?.id !== undefined && before.id !== id || after?.id !== undefined && after.id !== id) throw new AppError(422, '同步记录 ID 不一致');
-    if (before) schemas[kind].parse(before);
-    if (after) schemas[kind].parse(after);
     const current = (base[kind] as Entity[]).find(value => value.id === id);
     const compare = (a: unknown, b: unknown) => canonical(a) === canonical(b);
     const body = (v: Record<string, unknown> | Entity | null | undefined) => v ? content(v as Entity) : null;

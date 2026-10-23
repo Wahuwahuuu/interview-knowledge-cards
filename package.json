@@ -1,6 +1,6 @@
 {
   "name": "interview-knowledge-cards",
-  "version": "2.0.4",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,7 +23,7 @@
     "desktop:dev": "npm run build && npm run desktop:compile && electron .",
     "desktop:server": "node desktop-dist/cli.cjs",
     "desktop:package": "npm run build && npm run desktop:compile && electron-builder --config electron-builder.json --win nsis portable --publish never",
-    "test:sync": "vitest run tests/sync.test.ts tests/desktop-sync.test.ts tests/replica.test.ts",
+    "test:sync": "vitest run tests/sync.test.ts tests/desktop-sync.test.ts tests/replica.test.ts tests/cloud-sync.test.ts",
     "desktop:migrate": "node scripts/migrate-to-desktop.mjs"
   },
   "dependencies": {

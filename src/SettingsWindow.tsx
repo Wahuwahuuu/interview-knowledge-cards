@@ -6,21 +6,24 @@ import { Modal } from './Editors';
 import { runtimeMode } from './local-replica';
 import { SyncView } from './SyncView';
 import { UpdateView } from './UpdateView';
+import { CloudSyncView } from './CloudSyncView';
 
-type SettingsTab = 'account' | 'users' | 'sync' | 'updates';
+type SettingsTab = 'account' | 'users' | 'sync' | 'updates' | 'cloud';
 
-export function SettingsWindow({ account, offline, notify, onClose }: {
+export function SettingsWindow({ account, offline, notify, onClose, websiteSync }: {
   account: Account;
   offline: boolean;
   notify: (text: string) => void;
   onClose: () => void;
+  websiteSync?: boolean;
 }) {
   const hasSync = runtimeMode() !== 'cloud';
-  const [activeTab, setActiveTab] = useState<SettingsTab>(hasSync ? 'sync' : 'account');
+  const hasCloud = runtimeMode() !== 'phone';
+  const [activeTab, setActiveTab] = useState<SettingsTab>(websiteSync || runtimeMode()==='desktop' ? 'cloud' : hasSync ? 'sync' : 'account');
   const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({});
   const id = useId();
   const hasUpdates = runtimeMode() === 'desktop' && account.role === 'admin';
-  const tabs: SettingsTab[] = [...(hasSync ? ['sync' as const] : []), 'account', ...(account.role === 'admin' ? ['users' as const] : []), ...(hasUpdates ? ['updates' as const] : [])];
+  const tabs: SettingsTab[] = [...(hasCloud ? ['cloud' as const] : []), ...(hasSync ? ['sync' as const] : []), 'account', ...(account.role === 'admin' ? ['users' as const] : []), ...(hasUpdates ? ['updates' as const] : [])];
   const selected = tabs.includes(activeTab) ? activeTab : 'account';
 
   function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, tab: SettingsTab) {
@@ -50,7 +53,7 @@ export function SettingsWindow({ account, offline, notify, onClose }: {
           tabIndex={selected === tab ? 0 : -1}
           onClick={() => setActiveTab(tab)}
           onKeyDown={event => navigateTabs(event, tab)}
-        >{tab === 'account' ? <KeyRound size={18} /> : <ShieldCheck size={18} />}{tab === 'account' ? '账户与密码' : tab === 'sync' ? '本机与同步' : tab === 'updates' ? '软件更新' : '用户管理'}</button>)}
+        >{tab === 'account' ? <KeyRound size={18} /> : <ShieldCheck size={18} />}{tab === 'account' ? '账户与密码' : tab === 'sync' ? '本机与局域网' : tab === 'updates' ? '软件更新' : tab === 'cloud' ? '网站同步' : '用户管理'}</button>)}
       </div>
       <div id={`${id}-account-panel`} role="tabpanel" aria-labelledby={`${id}-account-tab`} className="settings-panel" hidden={selected !== 'account'} tabIndex={selected === 'account' ? 0 : -1}>
         <AccountView account={account} offline={offline} notify={notify} />
@@ -60,6 +63,7 @@ export function SettingsWindow({ account, offline, notify, onClose }: {
       </div>}
       {hasSync && <div id={`${id}-sync-panel`} role="tabpanel" aria-labelledby={`${id}-sync-tab`} className="settings-panel" hidden={selected !== 'sync'}>{selected === 'sync' && <SyncView notify={notify} />}</div>}
       {hasUpdates && <div id={`${id}-updates-panel`} role="tabpanel" aria-labelledby={`${id}-updates-tab`} className="settings-panel" hidden={selected !== 'updates'}>{selected === 'updates' && <UpdateView />}</div>}
+      {hasCloud && <div id={`${id}-cloud-panel`} role="tabpanel" aria-labelledby={`${id}-cloud-tab`} className="settings-panel" hidden={selected !== 'cloud'}>{selected === 'cloud' && <CloudSyncView notify={notify} />}</div>}
     </div>
   </Modal>;
 }

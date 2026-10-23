@@ -1,9 +1,10 @@
-import { app, BrowserWindow, dialog, Menu, shell, session } from 'electron';
+import { app, BrowserWindow, dialog, Menu, shell, session, safeStorage } from 'electron';
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { startDesktopServer } from './server';
 import electronUpdater from 'electron-updater';
 import { DesktopUpdater, UpdatePreparationError } from './updater';
+import { windowsCodec } from './cloud-sync';
 
 app.setName('InterviewKnowledgeCards');
 const dataDir = process.env.INTERVIEW_CARDS_DATA || join(app.getPath('appData'), 'InterviewKnowledgeCards');
@@ -42,7 +43,10 @@ else {
       },
       onReady: () => { if (window && !window.isDestroyed()) void dialog.showMessageBox(window, { type: 'info', title: '新版本已准备好', message: '新版本已在后台下载完成', detail: '保存正在编辑的内容后，打开左下角齿轮 → 软件更新，点击“重启更新”。更新前会自动备份题库。', buttons: ['稍后更新'] }); },
     });
-    server = await startDesktopServer({ dataDir, assets: join(root, 'dist'), migrations: join(root, 'migrations'), updates: {
+    server = await startDesktopServer({ dataDir, assets: join(root, 'dist'), migrations: join(root, 'migrations'), cloud: { codec: {
+      encrypt:async value=>{if(!await safeStorage.isAsyncEncryptionAvailable())throw new Error('本机安全存储暂不可用，请稍后重试');return 'electron:'+ (await safeStorage.encryptStringAsync(value)).toString('base64');},
+      decrypt:async value=>value.startsWith('dpapi:')?windowsCodec.decrypt(value):(await safeStorage.decryptStringAsync(Buffer.from(value.slice(9),'base64'))).result,
+    } }, updates: {
       status: () => updates!.status(), check: () => { void updates!.check(); }, install: () => { void updates!.install(); },
     } });
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));

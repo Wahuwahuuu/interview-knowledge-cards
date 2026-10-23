@@ -6,6 +6,11 @@ const seed = () => prepareImport(emptyLibrary(), importSchema.parse({ schema_ver
 function edit(base: Library, patch: object) { return prepareImport(base, importSchema.parse({ schema_version: 1, cards: [{ ...base.cards[0], ...patch }] })); }
 const operation = (a: Library, b: Library) => ({ id: 'op', epoch: 'epoch', changes: changesBetween(a, b) });
 describe('双向同步的语义合并', () => {
+  it('远端未知字段不能进入实体或其原型', () => {
+    const base=seed(),after=JSON.parse(JSON.stringify({...base.cards[0],summary_md:'有效更新'}).replace(/}$/,',"__proto__":{"polluted":true},"unexpected":"bad"}'));
+    const result=mergeOperation(base,{id:'safe-record',epoch:'epoch',changes:[{kind:'cards',id:base.cards[0].id,before:base.cards[0],after}]});
+    expect(result.conflicts).toEqual([]);expect(result.target.cards[0].summary_md).toBe('有效更新');expect(result.target.cards[0]).not.toHaveProperty('unexpected');expect(result.target.cards[0]).not.toHaveProperty('polluted');
+  });
   it('不同字段合并，保持手机的掌握状态与电脑的新答案', () => {
     const base = seed(), phone = edit(base, { mastery: 'mastered' }), computer = edit(base, { answer_md: '电脑详细讲解' });
     const { target, conflicts } = mergeOperation(computer, operation(base, phone));

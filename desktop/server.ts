@@ -11,9 +11,10 @@ import { z } from 'zod';
 import { LocalDatabase } from './database';
 import { certificates } from './certificates';
 import { hash, randomToken, sameSecret, SyncServer } from './sync-server';
+import { DesktopCloudSync, type SecretCodec } from './cloud-sync';
 
 const mime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
-export async function startDesktopServer(options: { dataDir: string; assets: string; migrations: string; port?: number; tlsPort?: number; guidePort?: number; lan?: boolean; bootstrap?: boolean; updates?: DesktopUpdateService }) {
+export async function startDesktopServer(options: { dataDir: string; assets: string; migrations: string; port?: number; tlsPort?: number; guidePort?: number; lan?: boolean; bootstrap?: boolean; updates?: DesktopUpdateService; cloud?: { codec?: SecretCodec; fetch?: typeof fetch; allowTestLoopback?: boolean; autoStart?: boolean; intervalMs?: number } }) {
   mkdirSync(options.dataDir, { recursive: true });
   const db = new LocalDatabase(join(options.dataDir, 'knowledge-cards.sqlite'), options.migrations);
   const today = new Date().toISOString().slice(0, 10), daily = join(options.dataDir, 'backups', `daily-${today}.sqlite`);
@@ -41,6 +42,11 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
   const info = () => ({ dataDir: options.dataDir, database: db.filename, fingerprint: certs?.fingerprint, rootName: certs?.rootName, addresses: certs?.addresses ?? [], links: certs?.addresses.map(ip => ({ ip, setup: `http://${ip}:${guidePort}`, app: `https://${ip}:${tlsPort}` })) ?? [], hostname: certs?.names[0], tlsPort, guidePort, backupDir: join(options.dataDir, 'backups'), agentCredential: credentialFile, connectionError });
   const sync = new SyncServer(db, env, '', info);
   let serial = Promise.resolve(), preparingUpdate = false;
+  const locked = <T>(work:()=>Promise<T>):Promise<T> => {
+    const task=serial.then(()=>{if(preparingUpdate)throw new AppError(503,'客户端正在准备更新，本地修改仍保留','APP_UPDATING');return work();});
+    serial=task.then(()=>undefined,()=>undefined);return task;
+  };
+  const cloud = new DesktopCloudSync(db,env,locked,options.dataDir,options.cloud);
   async function dispatch(request: Request, remoteAddress: string) {
     const url = new URL(request.url), path = url.pathname;
     if (preparingUpdate) throw new AppError(503, '客户端正在准备更新，尚未提交的手机修改会继续保留，请稍后重新连接', 'APP_UPDATING');
@@ -107,9 +113,10 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
           headers.delete('x-desktop-owner'); headers.delete('x-local-role'); headers.delete('cf-access-jwt-assertion'); headers.set('cf-connecting-ip', incoming.socket.remoteAddress ?? '');
           const method = incoming.method ?? 'GET', request = new Request(`${secure ? 'https' : 'http'}://${incoming.headers.host}${incoming.url}`, { method, headers, body: ['GET', 'HEAD'].includes(method) ? undefined : Buffer.concat(buffers) });
           // Slow network uploads must not hold the SQLite operation queue.
-          const task = serial.then(() => dispatch(request, incoming.socket.remoteAddress ?? ''));
-          serial = task.then(() => undefined, () => undefined);
+          const isCloud = new URL(request.url).pathname.startsWith('/api/v1/desktop/cloud-sync');
+          const task = isCloud ? cloud.handle(request,origin) : locked(() => dispatch(request, incoming.socket.remoteAddress ?? ''));
           const response = await task;
+          if(!isCloud&&response.ok&&!['GET','HEAD'].includes(method))cloud.changed();
           outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(Buffer.from(await response.arrayBuffer()));
         } catch (error) {
           const status = error instanceof AppError ? error.status : error instanceof z.ZodError || error instanceof SyntaxError ? 422 : 500;
@@ -142,13 +149,13 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
     } catch (error) { connectionError = '手机连接服务未启动：' + (error instanceof Error ? error.message : String(error)); httpsServer?.close(); guideServer?.close(); }
   }
   writeFileSync(join(options.dataDir, 'connection.json'), JSON.stringify({ origin, ...info(), connectionError }, null, 2));
-  return { db, origin, bootstrapUrl: `${origin}/desktop-bootstrap?key=${launchToken}`, info, sync, connectionError,
+  return { db, origin, bootstrapUrl: `${origin}/desktop-bootstrap?key=${launchToken}`, info, sync, cloud, connectionError,
     async prepareUpdateBackup(path: string) {
       preparingUpdate = true;
-      try { await serial; await db.saveBackup(path); }
-      catch (error) { preparingUpdate = false; throw error; }
+      try { await cloud.stop(); await serial; await db.saveBackup(path); }
+      catch (error) { preparingUpdate = false; cloud.start(); throw error; }
     },
-    async close() { await serial; await Promise.all([server, httpsServer, guideServer].filter(Boolean).map(item => new Promise<void>(resolve => item!.close(() => resolve())))); db.close(); }
+    async close() { await cloud.close(); await serial; await Promise.all([server, httpsServer, guideServer].filter(Boolean).map(item => new Promise<void>(resolve => item!.close(() => resolve())))); db.close(); }
   };
 }
 function listen(server: Server, port: number, host: string) { return new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve(); }); }); }

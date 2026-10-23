@@ -5,6 +5,7 @@ import { acceptRestoredLibrary, exportReplica, forgetReplica, getReplica, import
 import { ensureOfflineShell } from './offline';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import './sync.css';
+import { DesktopCloudBadge } from './CloudSyncView';
 
 export function useReplicaStatus() {
   const [, render] = useState(0);
@@ -45,6 +46,6 @@ export function SyncView({ notify }: { notify: (text: string) => void }) {
 }
 function format(value: unknown) { return typeof value === 'string' ? value : value === null ? '（记录已删除）' : JSON.stringify(value, null, 2); }
 export function SyncBadge({ onOpen }: { onOpen: () => void }) {
-  const replica = useReplicaStatus(); if (!replica) return null;
+  const replica = useReplicaStatus(); if(runtimeMode()==='desktop')return <DesktopCloudBadge onOpen={onOpen}/>; if (!replica) return null;
   return <button className={'sync-badge ' + (replica.pending.length || replica.connectionError ? 'sync-pending' : '')} onClick={onOpen}>{isSynchronizing() ? '正在同步…' : replica.pending.some(item => item.conflicts?.length) ? '同步冲突待处理' : replica.pending.length ? `本机已保存 · ${replica.pending.length} 项待同步` : replica.connectionError ? '电脑未连接 · 可离线编辑' : '已同步到电脑'}</button>;
 }

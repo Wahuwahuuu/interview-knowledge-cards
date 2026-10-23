@@ -9,6 +9,7 @@ import accountRoutes from './accounts';
 import { removeCard } from '../shared/card-actions';
 import { removeProject } from '../shared/project-actions';
 import { batchView, draft, getBatch, submitImport, type BatchRow } from './imports';
+import { handleCloudSync, isCloudSyncProtocol } from './cloud-sync';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -22,6 +23,7 @@ app.use('*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('Referrer-Policy', 'same-origin');
   c.header('Cache-Control', 'private, no-store');
+  if (isCloudSyncProtocol(c.req.path)) { assertOrigin(c.req.raw,c.env); return handleCloudSync(c.req.raw,c.env); }
   if (!c.req.path.startsWith('/api/') || c.req.path === '/api/health' || ['/api/v1/auth/status','/api/v1/auth/login','/api/v1/auth/register','/api/v1/auth/logout'].includes(c.req.path)) { assertOrigin(c.req.raw, c.env); await next(); return; }
   const identity = await authenticate(c.req.raw, c.env);
   if (!c.req.path.startsWith('/api/v1/agent/')) {
@@ -33,6 +35,7 @@ app.use('*', async (c, next) => {
 });
 app.get('/api/health', c => c.json({ ok: true }));
 app.route('/', accountRoutes);
+app.all('/api/v1/device-sync/*', c => handleCloudSync(c.req.raw,c.env,c.get('identity')));
 
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (!request.headers.get('content-type')?.includes('application/json')) throw new AppError(415, '请使用 application/json 提交数据');
@@ -53,6 +56,7 @@ app.post('/api/v1/changes', async c => {
   return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
 });
 app.get('/api/v1/library', async c => c.json(await readLibrary(c.env.DB, c.get('identity').user_id)));
+app.get('/api/v1/library/revision', async c => c.json(await c.env.DB.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(c.get('identity').user_id).first() ?? {revision:0}));
 app.put('/api/v1/projects/order', async c => {
   const input = projectOrderRequestSchema.parse(await body(c.req.raw));
   return c.json(await updateProjectOrder(c.env.DB, c.get('identity').user_id, input));

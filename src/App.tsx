@@ -50,6 +50,7 @@ export default function App() {
   const [toast, setToast] = useState(''), [operationBusy, setOperationBusy] = useState(false), [operationMessage, setOperationMessage] = useState(''), [sidebar, setSidebar] = useState(false), [downloads, setDownloads] = useState<Download[]>([]);
   const [manageTab, setManageTab] = useState('imports'), [practiceEntryId, setPracticeEntryId] = useState<string | undefined>(), [practiceKey, setPracticeKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [websiteSyncEntry,setWebsiteSyncEntry] = useState(false);
   const [contextMenu, setContextMenu] = useState<MenuSelection | null>(null);
   const [projectOrder, setProjectOrder] = useState<string[] | null>(null);
   const projectOrderBusy = useRef(false);
@@ -112,6 +113,21 @@ export default function App() {
     return () => { window.removeEventListener('replica-library', libraryChanged); window.removeEventListener('offline', disconnect); window.removeEventListener('online', connect); window.removeEventListener('beforeunload', beforeUnload); window.removeEventListener('storage', accountChanged); };
   }, []);
   useEffect(() => { setSettingsOpen(false); setProjectOrder(null); }, [account?.user_id]);
+  useEffect(()=>{if(account&&new URLSearchParams(location.search).get('settings')==='website-sync'){setWebsiteSyncEntry(true);setSettingsOpen(true);const url=new URL(location.href);url.searchParams.delete('settings');history.replaceState(null,'',url.pathname+url.search+url.hash);}},[account?.user_id]);
+  const backgroundGuard=useRef({revision:confirmedLibrary?.revision,dirty,busy:operationBusy,loading});
+  backgroundGuard.current={revision:confirmedLibrary?.revision,dirty,busy:operationBusy,loading};
+  useEffect(()=>{
+    if(!account||runtimeMode()==='phone')return;
+    let stopped=false,fetching=false;
+    const blocked=()=>stopped||document.hidden||!navigator.onLine||backgroundGuard.current.dirty||backgroundGuard.current.busy||backgroundGuard.current.loading||cardSaves.queue.hasPending||projectOrderBusy.current;
+    const poll=async()=>{if(fetching||blocked())return;fetching=true;const sequence=refreshSequence.current;try{
+      const meta=await api<{revision:number}>('/library/revision');
+      if(!blocked()&&meta.revision!==backgroundGuard.current.revision){const next=await loadLibrary();if(!blocked()&&sequence===refreshSequence.current&&next.revision>=Number(backgroundGuard.current.revision??0))setLibrary(next);}
+    }catch{/* Keep the current library and any draft during a temporary network failure. */}finally{fetching=false;}};
+    const timer=setInterval(()=>void poll(),runtimeMode()==='desktop'?5000:10000);
+    window.addEventListener('focus',poll);document.addEventListener('visibilitychange',poll);
+    return()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',poll);document.removeEventListener('visibilitychange',poll);};
+  },[account?.user_id]);
   const project = library?.projects.find(p => p.id === projectId);
   const activeCards = useMemo(() => library?.cards.filter(c => !c.archived) ?? [], [library]);
   const activeGroups = useMemo(() => library ? questionGroups(library) : [], [library]);
@@ -321,7 +337,7 @@ export default function App() {
     </div>
     {library && pendingDeletion && <ConfirmationDialog title={deletionTitle} name={pendingDeletion.kind === 'card' || pendingDeletion.kind === 'relation' ? <InlineMarkdown text={pendingDeletion.name} questionTitle /> : pendingDeletion.name} description={deletionDescription} busy={operationBusy} error={deleteError} confirmLabel={pendingDeletion.kind === 'download' || pendingDeletion.kind === 'relation' ? '确认移除' : '确认删除'} onCancel={cancelDeletion} onConfirm={() => void confirmDeletion()} />}
     {contextMenu && menuItems.length > 0 && <ContextMenu key={contextMenu.kind + contextMenu.id + contextMenu.x + contextMenu.y} label={plain(menuCard?.title ?? menuProject?.name ?? '')} x={contextMenu.x} y={contextMenu.y} items={menuItems} onClose={closeContextMenu} />}
-    {settingsOpen && account && <SettingsWindow account={account} offline={offline} notify={notify} onClose={() => setSettingsOpen(false)} />}
+    {settingsOpen && account && <SettingsWindow account={account} offline={offline} notify={notify} websiteSync={websiteSyncEntry} onClose={() => setSettingsOpen(false)} />}
     <SyncBadge onOpen={openSettings} />
     {toast && <div className="toast" role="status"><span>{toast}</span><button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
     {library && detail && !editor && !sourceId && !pendingDeletion && <Modal wide title={<InlineMarkdown text={detail.question || detail.title} questionTitle />} onClose={() => { if (!operationBusy) setDetailId(undefined); }}><div className="detail-meta"><span className="pill">{library.projects.find(p => p.id === detail.project_id)?.name}</span><span className={'status ' + detail.mastery}>{detail.mastery === 'mastered' ? '已掌握' : '待复习'}</span>{detail.important && <span className="priority-badge">重点</span>}<SourceBadge card={detail} /></div><div className="detail-actions"><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('cards', detail)}><Edit3 size={15} />编辑答案</button><button className="secondary" disabled={buttonsDisabled} onClick={() => openEditor('appearance', detail)}><Plus size={15} />记录被问来源</button><button className={'secondary ' + (detail.important ? 'priority-active' : '')} aria-pressed={detail.important} disabled={stateButtonsDisabled} onClick={() => void updateCard(detail, { important: !detail.important })}><Flag size={15} />{detail.important ? '取消重点' : '设为重点'}</button><button ref={deleteButton} type="button" className="secondary card-delete-button" disabled={buttonsDisabled} onClick={() => requestDeletion('card', detail.id, detail.title)}><Trash2 size={15} />删除知识卡</button></div><div className="detail-section"><h3>复习提纲</h3><Markdown text={detail.summary_md} /></div><CardFullAnswer key={detail.id} text={detail.answer_md} />

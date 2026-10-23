@@ -99,12 +99,13 @@ function upsert(db: D1Database, userId: string, kind: Kind, value: Entity): D1Pr
   return db.prepare(`INSERT INTO user_${kind} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')}) ON CONFLICT(user_id,id) DO UPDATE SET ${columns.slice(2).map(c => `${c}=excluded.${c}`).join(',')}`).bind(...values);
 }
 
-export async function commitLibrary(db: D1Database, userId: string, base: Library, target: Library, options: { restore?: boolean; batchId?: string } = {}) {
+export async function commitLibrary(db: D1Database, userId: string, base: Library, target: Library, options: { restore?: boolean; batchId?: string; extra?: D1PreparedStatement[] } = {}) {
   validateLibrary(target);
   const guard = crypto.randomUUID();
   const pendingBatch = options.batchId ? " AND EXISTS (SELECT 1 FROM user_import_batches WHERE user_id=? AND id=? AND status='pending' AND base_revision=?)" : '';
   const statements: D1PreparedStatement[] = [db.prepare(`INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT revision FROM user_library_meta WHERE user_id=?)=?${pendingBatch} THEN 1 ELSE 0 END)`).bind(userId, guard, userId, base.revision, ...(options.batchId ? [userId, options.batchId, base.revision] : []))];
   if (options.restore) {
+    statements.push(db.prepare('UPDATE cloud_sync_state SET epoch=? WHERE user_id=?').bind(crypto.randomUUID(),userId));
     for (const table of ['relations', 'occurrences', 'card_topics', 'card_revisions', 'cards', 'sources', 'topics', 'projects']) statements.push(db.prepare(`DELETE FROM user_${table} WHERE user_id=?`).bind(userId));
   } else {
     const remainingCards = new Set(target.cards.map(card => card.id));
@@ -141,6 +142,7 @@ export async function commitLibrary(db: D1Database, userId: string, base: Librar
   }
   statements.push(db.prepare('UPDATE user_library_meta SET revision=revision+1 WHERE user_id=?').bind(userId));
   if (options.batchId) statements.push(db.prepare("UPDATE user_import_batches SET status='applied',applied_at=?,error_message='' WHERE user_id=? AND id=? AND status='pending'").bind(new Date().toISOString(),userId, options.batchId));
+  statements.push(...(options.extra ?? []));
   statements.push(db.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(userId,guard));
   try { await db.batch(statements); }
   catch (error) {

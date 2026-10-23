@@ -2,7 +2,7 @@
 
 线上网站继续作为日常使用入口：手机和电脑用同一账号访问已部署的 HTTPS 网站，共用线上题库；不需要电脑开机、连接同一个 Wi-Fi 或安装本机证书。iPhone 主屏幕使用方式见 [手机说明](docs/ios.md)。
 
-Windows 本地版与 SQLite 题库继续保留，作为独立的可选方式；配对的 iPhone PWA 可离线编辑，连接电脑后双向同步。安装包、迁移、配对及维护方式见 [本地软件使用说明](docs/desktop.md)。**本地题库与线上题库目前不自动同步**，切换数据来源前应先备份和核对，不能直接用其中一份覆盖另一份。
+Windows 客户端使用本地 SQLite，2.1.0 起可与网站自动双向同步。网站「设置 → 网站同步」生成连接码，在客户端填写网站地址和连接码，核对账号与题库数量，确认首次合并后启用。手机在网站修改题目和答案，电脑联网且软件运行时自动接收；电脑离线修改保存在本地，联网后自动上传，不要求同一 Wi-Fi。首次合并前自动备份，同字段冲突保留双方供选择。详见 [自动同步说明](docs/cloud-sync.md) 和 [本地软件说明](docs/desktop.md)。未连接的两份题库保持独立，不直接覆盖。
 
 [![CI](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml/badge.svg)](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/Wahuwahuuu/interview-knowledge-cards)](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)
@@ -27,6 +27,7 @@ Windows 本地版与 SQLite 题库继续保留，作为独立的可选方式；�
 | AI 协作 | 受保护的机器接口查询管理员题库、直接导入普通题目并查询结果；不能删除、恢复或管理用户 |
 | 私人账户 | 邮箱账号加密码注册，每人拥有独立题库；管理员控制用户启停和注册开关 |
 | 离线复习 | 下载指定项目后，断网阅读、翻卡和查看图谱；修改需要联网 |
+| 网站与客户端同步 | 连接码授权后自动双向同步题目、答案和复习状态；断网补传、冲突选择、网站撤销设备；手机使用公网网站，无需同一 Wi-Fi |
 
 删除知识卡、删除项目、移除问题关联、移除本机离线内容、移除待导入题目，以及完整备份恢复都需要在独立弹窗中再次确认。取消、关闭或按 Esc 不会执行删除；处理中禁止重复提交。删除项目会移除其中的全部卡片（包含归档卡片）及其关联，保留原始来源、共用知识点和其他项目。删除后可通过此前导出的完整 JSON 备份恢复。
 
@@ -182,7 +183,7 @@ npm run test:accounts
 
 v1.0 的桌面离线、原文保留、备份恢复、并发冲突、跨用户隔离和真实线上注册登录已完成验证。**iPhone 真机登录与离线复习仍需在实际设备完成验收**。详细记录与边界见 [验证说明](docs/validation.md)，版本说明见 [CHANGELOG](CHANGELOG.md) 与 [GitHub Releases](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)。
 
-本版采用手动复习，尚未提供间隔重复算法、离线编辑同步或每用户独立 AI 凭证管理。
+本版采用手动复习，尚未提供间隔重复算法或每用户独立 AI 凭证管理。Windows 支持本地编辑及联网后同步网站；公网网站的项目下载仍是离线阅读副本，离线编辑仅限可选的本机配对 PWA。
 
 ## 许可
 
