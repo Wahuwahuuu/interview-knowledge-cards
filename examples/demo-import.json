@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "batch_id": "demo-backend-v1",
+  "batch_id": "demo-backend-v2",
   "mode": "merge",
   "projects": [
     {
@@ -11,28 +11,8 @@
   ],
   "topics": [
     {
-      "id": "async-tasks",
-      "name": "异步任务"
-    },
-    {
-      "id": "bounded-queue",
-      "name": "有界队列"
-    },
-    {
-      "id": "model-concurrency",
-      "name": "并发控制"
-    },
-    {
-      "id": "endpoint-balancing",
-      "name": "负载分配"
-    },
-    {
-      "id": "timeouts-retries",
-      "name": "超时与重试"
-    },
-    {
-      "id": "fallback-review",
-      "name": "降级策略"
+      "id": "category-systems",
+      "name": "系统设计与分布式"
     }
   ],
   "cards": [
@@ -45,11 +25,7 @@
       "answer_md": "这是演示内容。\n\n异步接口返回任务标识并不意味着任务已经完成。分析延迟时，应分别观测提交接口、任务等待和实际执行。对瓶颈先提出可验证的假设，再通过指标或压测检查。\n\n并发控制需要考虑单进程与多实例部署的区别，不能把单个实例的上限当成全局上限。不要在缺少观测数据时承诺性能提升比例。",
       "limitations_md": "演示内容，不对应真实项目或个人经历。具体策略需要根据实际实现与测试数据确定。",
       "topic_ids": [
-        "async-tasks",
-        "bounded-queue",
-        "model-concurrency",
-        "endpoint-balancing",
-        "timeouts-retries"
+        "category-systems"
       ],
       "source_baseline": "虚构演示 v1",
       "evidence": []
@@ -63,9 +39,7 @@
       "answer_md": "这是演示内容。\n\n降级策略应由业务允许的结果边界决定。依赖失败后，可以在条件允许时使用替代服务、确定性规则或缓存；若无法可靠得出结果，应明确标记失败或待处理。\n\n重试需要限制次数并避免放大流量。排队只是延后执行，不必然意味着减少任务能力。恢复时还需要检查状态是否准确传递给界面。",
       "limitations_md": "演示内容，不暗示任何项目已实现这些功能。使用前需核对自己的源码及业务要求。",
       "topic_ids": [
-        "async-tasks",
-        "model-concurrency",
-        "fallback-review"
+        "category-systems"
       ],
       "source_baseline": "虚构演示 v1",
       "evidence": []

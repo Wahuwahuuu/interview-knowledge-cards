@@ -13,7 +13,7 @@
 | 数组 | 必需字段 | 主要可选字段 |
 | --- | --- | --- |
 | projects | id, name | description |
-| topics | id, name | — |
+| topics | id, name | archived（归档旧分类） |
 | cards | id, project_id, title, question | summary_md, answer_md, topic_ids, important, favorite, mastery, archived |
 | sources | id, name, kind | date, company, job, round, notes, source_path, original_markdown |
 | occurrences | id, card_id, source_id, asked_question | original_answer_md, section, notes |
@@ -27,7 +27,9 @@
 
 卡片页面和填写表单已移除「实现边界与待核实」「源码与文档依据」。旧的 `limitations_md`、`source_baseline`、`evidence` 字段仍可在 JSON 备份中保留并恢复，兼容已有资料。更新旧卡片时保留这些字段即可，无需新增。源码 evidence 为数组，每项可包含 `label`（必需）、`path`、`line`（正整数）、`url`。
 
-ID 长度 1–128，使用字母、数字、点、下划线、冒号或短横线，首字符为字母或数字。引用的项目、知识点、卡片或来源必须在题库中存在，或包含在同一批导入里。同名问题按不同 ID 保留，不做语义合并。知识点复用已有 ID，避免不必要的重名节点。
+ID 长度 1–128，使用字母、数字、点、下划线、冒号或短横线，首字符为字母或数字。引用的项目、知识大类、卡片或来源必须在题库中存在，或包含在同一批导入里。同名问题按不同 ID 保留，不做语义合并。
+
+`topics` 只维护大类，例如 MySQL、Redis 与缓存、计算机网络，不为索引、锁、事务等细节新建分类。优先复用未归档的现有大类；每张卡片的 `topic_ids` 最多包含一个在用大类，允许未分类。`source-audit-YYYYMMDD-*` 是来源元数据，不计入单选数量，更新卡片时必须保留。旧细分类可用 `archived: true` 保留并隐藏，备份与历史仍包含它们。已有多标签的旧备份可以原样恢复，修改分类时按单选规则保存。
 
 `revision`、`updated_at` 由服务器维护。新增对象可以省略；更新已有对象必须先读取最新题库，保留全部字段及这两个当前值，再修改指定内容。缺失或过期会返回 `409 IMPORT_TARGET_CONFLICT`，应重新读取、核对内容并用新批次提交。遗漏可选字段会采用默认值，不是局部补丁。已有来源的 `original_markdown` 和已有出现记录的原始问答及归属不可被普通导入修改。
 

@@ -2,7 +2,7 @@
 
 ## Windows 使用
 
-打开 `releases/Interview-Knowledge-Cards-2.0.0-Setup.exe` 安装，或直接运行同目录的 `Portable.exe`。安装包包含运行环境，不需要另外安装 Node、MySQL 或 SQLite 服务。升级程序不覆盖题库；卸载默认保留数据。
+打开 `releases/Interview-Knowledge-Cards-2.0.1-Setup.exe` 安装，或直接运行同目录的 `Portable.exe`。安装包包含运行环境，不需要另外安装 Node、MySQL 或 SQLite 服务。升级程序不覆盖题库；卸载默认保留数据。
 
 默认数据目录：`%APPDATA%\InterviewKnowledgeCards`。
 
@@ -14,6 +14,8 @@
 通过程序的“文件”菜单可以打开数据目录和备份目录。完整 JSON 与阅读版 Markdown 导出、恢复预览及二次确认继续保留。SQLite 文件应通过自动备份复制，或关闭程序后复制，避免遗漏正在使用的 WAL 日志。完整数据库包含所有账户；不要公开上传。
 
 程序目前没有自动升级：维护源码后重新构建安装包，再覆盖安装。普通整理题库不需要 GitHub、Cloudflare 或外网；需要远程 AI 时，该服务自身仍需联网。Windows 安装包尚未购买代码签名证书，系统可能显示未知发布者。
+
+知识点现按大类维护，卡片编辑和填写导入均为下拉单选。分类整理随普通双向同步传到手机；手机重新连接电脑并完成同步后使用新大类。旧细分类和来源元数据仍在备份、历史中保留。
 
 ## 首次连接 iPhone
 

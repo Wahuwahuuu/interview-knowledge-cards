@@ -3,6 +3,7 @@ import { X, Plus, Save, Link2 } from 'lucide-react';
 import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSchema, topicSchema, type Card, type Entity, type Kind, type Library, type Source } from '../shared/model';
 import { api, newId } from './api';
 import { canLinkFollowup, orderedFollowups } from '../shared/followups';
+import { cardCategories, knowledgeCategories, withCategory } from '../shared/topic-categories';
 
 export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false, initialFocusRef, descriptionId }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean; initialFocusRef?: RefObject<HTMLElement | null>; descriptionId?: string }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
@@ -37,26 +38,26 @@ function useSubmit(props: FormProps) {
   } };
 }
 export function CardForm(props: FormProps & { initial: Card }) {
-  const [value, setValue] = useState(props.initial), [newTopics, setNewTopics] = useState('');
+  const [value, setValue] = useState(props.initial);
   const { busy, error, submit } = useSubmit(props);
   function set<K extends keyof Card>(key: K, next: Card[K]) { setValue(v => ({ ...v, [key]: next })); props.onDirty(true); }
   return <form onSubmit={event => {
     event.preventDefault();
-    const topics = newTopics.split(/[,，\n]/).map(v => v.trim()).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-    const added = topics.filter(name => !props.library.topics.some(t => t.name === name)).map(name => topicSchema.parse({ id: newId('topic'), name }));
-    const ids = topics.map(name => [...props.library.topics, ...added].find(t => t.name === name)!.id);
-    void submit({ topics: added, cards: [{ ...value, topic_ids: [...new Set([...value.topic_ids, ...ids])] }] });
+    void submit({ cards: [{ ...value, topic_ids: withCategory(value, cardCategories(value, props.library.topics)[0]?.id ?? '') }] });
   }}>
     <div className="form-row"><Field label="所属项目"><select value={value.project_id} onChange={e => set('project_id', e.target.value)}>{props.library.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="卡片标题"><input required value={value.title} onChange={e => set('title', e.target.value)} placeholder="例如：并发增长与性能调优" /></Field></div>
     <Field label="问题"><textarea required rows={3} value={value.question} onChange={e => set('question', e.target.value)} placeholder="让问题在脱离原对话时也能理解" /></Field>
     <Field label="复习提纲" hint="写下口述时的主线和关键词，支持 Markdown。"><textarea rows={7} value={value.summary_md} onChange={e => set('summary_md', e.target.value)} /></Field>
     <Field label="完整答案"><textarea rows={12} value={value.answer_md} onChange={e => set('answer_md', e.target.value)} /></Field>
     <label className="priority-checkbox"><input type="checkbox" checked={value.important} onChange={event => set('important', event.target.checked)} />重点</label>
-    <Field label="知识点"><div className="topic-options">{props.library.topics.map(t => <label key={t.id} className={'topic-check ' + (value.topic_ids.includes(t.id) ? 'checked' : '')}><input type="checkbox" checked={value.topic_ids.includes(t.id)} onChange={e => set('topic_ids', e.target.checked ? [...value.topic_ids, t.id] : value.topic_ids.filter(id => id !== t.id))} />{t.name}</label>)}</div></Field>
-    <Field label="新增知识点" hint="多个知识点用逗号分隔，保存时会同时添加。"><input value={newTopics} onChange={e => { setNewTopics(e.target.value); props.onDirty(true); }} placeholder="例如：幂等、故障隔离" /></Field>
+    <CategoryField topics={props.library.topics} value={cardCategories(value, props.library.topics)[0]?.id ?? ''} onChange={id => set('topic_ids', withCategory(value, id))} />
     <div className="form-row"><Field label="复习状态"><select value={value.mastery} onChange={e => set('mastery', e.target.value as Card['mastery'])}><option value="review">待复习</option><option value="mastered">已掌握</option></select></Field><Field label="归档状态"><select value={String(value.archived)} onChange={e => set('archived', e.target.value === 'true')}><option value="false">正常显示</option><option value="true">归档保留</option></select></Field></div>
     {error && <p className="form-error" role="alert">{error}</p>}<div className="form-footer"><span className="muted">保存后更新当前卡片。</span><button className="primary" disabled={busy}><Save size={16} />{busy ? '保存中…' : '保存卡片'}</button></div>
   </form>;
+}
+
+function CategoryField({ topics, value, onChange }: { topics: Library['topics']; value: string; onChange: (id: string) => void }) {
+  return <Field label="知识大类"><select value={value} onChange={event => onChange(event.target.value)}><option value="">未分类</option>{knowledgeCategories(topics).map(topic => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></Field>;
 }
 
 export function RecordForm(props: FormProps & { kind: 'projects' | 'topics' | 'sources'; initial: Entity }) {
@@ -67,7 +68,7 @@ export function RecordForm(props: FormProps & { kind: 'projects' | 'topics' | 's
   const duplicateName = props.kind === 'projects' && previous?.name.trim() !== name && props.library.projects.some(project => project.id !== value.id && project.name.trim() === name);
   function set(key: string, next: string) { setValue(v => ({ ...v, [key]: next })); props.onDirty(true); }
   return <form onSubmit={e => { e.preventDefault(); if (!duplicateName) void submit({ [props.kind]: [value] }); }}>
-    <Field label={props.kind === 'projects' ? '项目名称' : props.kind === 'topics' ? '知识点名称' : '来源名称'}><input required value={String(value.name ?? '')} onChange={e => set('name', e.target.value)} /></Field>
+    <Field label={props.kind === 'projects' ? '项目名称' : props.kind === 'topics' ? '知识大类名称' : '来源名称'} hint={props.kind === 'topics' ? '只维护大类，例如 MySQL、Redis 与缓存、计算机网络。' : undefined}><input required value={String(value.name ?? '')} onChange={e => set('name', e.target.value)} /></Field>
     {duplicateName && <p className="form-error" role="alert">项目“{name}”已存在，请使用其他名称或选择已有项目</p>}
     {props.kind === 'projects' && <Field label="项目说明"><textarea rows={5} value={String(value.description ?? '')} onChange={e => set('description', e.target.value)} /></Field>}
     {props.kind === 'sources' && <SourceFields value={value} set={set} />}
@@ -94,7 +95,7 @@ export function OccurrenceForm(props: FormProps & { card: Card }) {
 }
 export function FollowupForm(props: FormProps & { card: Card }) {
   const [mode, setMode] = useState<'new' | 'existing'>('new'), [target, setTarget] = useState('');
-  const [value, setValue] = useState(() => cardSchema.parse({ id: newId('card'), project_id: props.card.project_id, title: '追问', question: '追问', topic_ids: props.card.topic_ids }));
+  const [value, setValue] = useState(() => cardSchema.parse({ id: newId('card'), project_id: props.card.project_id, title: '追问', question: '追问', topic_ids: withCategory(props.card, cardCategories(props.card, props.library.topics)[0]?.id ?? '') }));
   const [question, setQuestion] = useState('');
   const { busy, error, submit } = useSubmit(props);
   const existing = orderedFollowups(props.library, props.card.id);
@@ -109,6 +110,7 @@ export function FollowupForm(props: FormProps & { card: Card }) {
     <div className="segmented followup-mode" role="group" aria-label="添加追问方式"><button type="button" className={mode === 'new' ? 'selected' : ''} aria-pressed={mode === 'new'} onClick={() => setMode('new')}>新建追问</button><button type="button" className={mode === 'existing' ? 'selected' : ''} aria-pressed={mode === 'existing'} onClick={() => setMode('existing')}>关联已有知识卡</button></div>
     {mode === 'new' ? <>
       <Field label="追问问题"><textarea required rows={3} value={question} onChange={event => { setQuestion(event.target.value); props.onDirty(true); }} /></Field>
+      <CategoryField topics={props.library.topics} value={cardCategories(value, props.library.topics)[0]?.id ?? ''} onChange={id => { setValue(v => ({ ...v, topic_ids: withCategory(v, id) })); props.onDirty(true); }} />
       <Field label="口述答案"><textarea rows={5} value={value.summary_md} onChange={event => { setValue(v => ({ ...v, summary_md: event.target.value })); props.onDirty(true); }} /></Field>
       <Field label="详细讲解"><textarea rows={8} value={value.answer_md} onChange={event => { setValue(v => ({ ...v, answer_md: event.target.value })); props.onDirty(true); }} /></Field>
       <label className="priority-checkbox"><input type="checkbox" checked={value.important} onChange={event => { setValue(v => ({ ...v, important: event.target.checked })); props.onDirty(true); }} />重点</label>
@@ -131,6 +133,6 @@ export function RelationForm(props: FormProps & { card: Card }) {
 export function blankRecord(kind: Kind, projectId?: string): Entity {
   if (kind === 'cards') return cardSchema.parse({ id: newId('card'), project_id: projectId || 'unset', title: '新问题', question: '请填写问题' });
   if (kind === 'projects') return projectSchema.parse({ id: newId('project'), name: '新项目' });
-  if (kind === 'topics') return topicSchema.parse({ id: newId('topic'), name: '新知识点' });
+  if (kind === 'topics') return topicSchema.parse({ id: newId('topic'), name: '新知识大类' });
   return sourceSchema.parse({ id: newId('source'), name: '新来源', kind: 'real' });
 }

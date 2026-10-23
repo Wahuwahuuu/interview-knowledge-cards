@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import { normalizeCardPriority } from './card-priority';
 import { canLinkFollowup } from './followups';
-import { isSourceTopic } from './card-source';
+import { cardCategories, knowledgeCategories } from './topic-categories';
 
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/, 'ID 只能包含字母、数字及 . _ : -');
 const text = z.string().max(400_000);
 const base = { id, revision: z.number().int().positive().default(1), updated_at: z.string().default('') };
 export const projectSchema = z.object({ ...base, name: z.string().trim().min(1).max(100), description: text.default(''), sort_order: z.number().int().nonnegative().optional() });
-export const topicSchema = z.object({ ...base, name: z.string().trim().min(1).max(100) });
+export const topicSchema = z.object({ ...base, name: z.string().trim().min(1).max(100), archived: z.boolean().optional() });
 export const evidenceSchema = z.object({ label: z.string().min(1), path: z.string().default(''), line: z.number().int().positive().optional(), url: z.string().default('') });
 export const cardSchema = z.preprocess(normalizeCardPriority, z.object({
   ...base, project_id: id, title: z.string().trim().min(1).max(150), question: text.min(1),
@@ -144,6 +144,12 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
         const old = previous as Occurrence, next = proposed as Occurrence;
         if (old.asked_question !== next.asked_question || old.original_answer_md !== next.original_answer_md || old.card_id !== next.card_id || old.source_id !== next.source_id) throw new AppError(422, '已有出现记录的原始问答及归属不能被覆盖；请新增记录');
       }
+      // Legacy backups may contain multiple fine-grained tags. Enforce the new
+      // single-category rule on assignments being edited, without blocking
+      // unrelated edits or changing historical snapshots during restore.
+      if (kind === 'cards' && (!previous || canonical((previous as Card).topic_ids) !== canonical((proposed as Card).topic_ids))) {
+        if (cardCategories(proposed as Card, target.topics).length > 1) throw new AppError(422, '每张知识卡只能选择一个知识大类', 'MULTIPLE_CATEGORIES');
+      }
       if (previous && sameContent(previous, proposed)) continue;
       const next = { ...proposed, revision: (previous?.revision ?? 0) + 1, updated_at: now } as Entity;
       if (index < 0) list.push(next); else list[index] = next;
@@ -157,6 +163,12 @@ export function prepareImport(base: Library, envelope: ImportEnvelope, now = new
     if (!canLinkFollowup(withoutThisLink, relation.from_card_id, relation.to_card_id)) throw new AppError(422, '这条追问会形成循环，请选择其他问题');
   }
   validateProjectNames(base.projects, target.projects);
+  const categories = knowledgeCategories(target.topics);
+  for (const topic of categories) {
+    const previous = base.topics.find(item => item.id === topic.id);
+    if (previous?.name === topic.name && !previous.archived) continue;
+    if (categories.some(item => item.id !== topic.id && item.name === topic.name)) throw new AppError(422, `知识大类“${topic.name}”已存在，请选择已有大类`, 'DUPLICATE_CATEGORY_NAME');
+  }
   validateLibrary(target);
   return target;
 }
@@ -202,12 +214,13 @@ export function graphElements(library: Library, projectId?: string) {
   const cards = library.cards.filter(c => !c.archived && (!projectId || c.project_id === projectId));
   const cardIds = new Set(cards.map(c => c.id));
   const projectIds = new Set(cards.map(c => c.project_id));
-  const topicIds = new Set(cards.flatMap(c => c.topic_ids.filter(id => !isSourceTopic(id))));
+  const visibleTopics = new Set(knowledgeCategories(library.topics).map(topic => topic.id));
+  const topicIds = new Set(cards.flatMap(c => c.topic_ids.filter(id => visibleTopics.has(id))));
   return [
     ...library.projects.filter(p => projectIds.has(p.id)).map(p => ({ data: { id: `p:${p.id}`, entity_id: p.id, label: p.name, type: 'project' } })),
     ...cards.map(c => ({ data: { id: `c:${c.id}`, entity_id: c.id, label: c.title, type: 'card', mastered: c.mastery === 'mastered' ? 'yes' : 'no' } })),
     ...library.topics.filter(t => topicIds.has(t.id)).map(t => ({ data: { id: `t:${t.id}`, entity_id: t.id, label: t.name, type: 'topic' } })),
-    ...cards.flatMap(c => [{ data: { id: `pc:${c.id}`, source: `p:${c.project_id}`, target: `c:${c.id}`, kind: 'project' } }, ...c.topic_ids.filter(id => !isSourceTopic(id)).map(t => ({ data: { id: `ct:${c.id}:${t}`, source: `c:${c.id}`, target: `t:${t}`, kind: 'topic' } }))]),
+    ...cards.flatMap(c => [{ data: { id: `pc:${c.id}`, source: `p:${c.project_id}`, target: `c:${c.id}`, kind: 'project' } }, ...c.topic_ids.filter(id => visibleTopics.has(id)).map(t => ({ data: { id: `ct:${c.id}:${t}`, source: `c:${c.id}`, target: `t:${t}`, kind: 'topic' } }))]),
     ...library.relations.filter(r => cardIds.has(r.from_card_id) && cardIds.has(r.to_card_id)).map(r => ({ data: { id: `r:${r.id}`, source: `c:${r.from_card_id}`, target: `c:${r.to_card_id}`, kind: r.kind, label: r.kind === 'followup' ? '追问' : '相关' } })),
   ];
 }

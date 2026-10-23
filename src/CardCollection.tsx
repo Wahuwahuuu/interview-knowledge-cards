@@ -4,7 +4,7 @@ import type { Card, Library } from '../shared/model';
 import type { QuestionGroup } from '../shared/question-groups';
 import { InlineMarkdown } from './Markdown';
 import { MoreActionsButton } from './ContextMenu';
-import { isSourceTopic } from '../shared/card-source';
+import { cardCategories } from '../shared/topic-categories';
 import { SourceBadge } from './SourceBadge';
 import './question-groups.css';
 
@@ -29,7 +29,7 @@ function QuestionGroupCard({ group, index, ...props }: Omit<Props, 'cards' | 'gr
   const [visited, setVisited] = useState(Boolean(group.expandForMatches));
   useEffect(() => { if (group.expandForMatches) { setExpanded(true); setVisited(true); } }, [group.expandForMatches]);
   const isList = props.layout === 'list', hasChildren = children.length > 0;
-  const technicalTopics = main.topic_ids.filter(id => !isSourceTopic(id));
+  const technicalTopics = cardCategories(main, props.library.topics).map(topic => topic.id);
   function toggle() { setVisited(true); setExpanded(value => !value); }
   const status = (card: Card) => <span className={'status ' + card.mastery}>{card.archived ? '已归档' : card.mastery === 'mastered' ? '已掌握' : '待复习'}</span>;
   const more = (card: Card) => props.onMenu && <MoreActionsButton label={`知识卡操作：${label(card)}`} expanded={props.menuCardId === card.id} onOpen={event => props.onMenu!(event, card)} />;

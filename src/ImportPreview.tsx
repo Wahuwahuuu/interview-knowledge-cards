@@ -7,8 +7,8 @@ const reviewFields = [
   ['important', '重点'],
 ] as const;
 const reviewFieldNames = new Set<string>(reviewFields.map(([field]) => field));
-const kindNames: Record<string, string> = { projects: '项目', cards: '问题资料', topics: '知识点', sources: '面试来源', occurrences: '出现记录', relations: '问题关系' };
-const fieldNames: Record<string, string> = { id: 'ID', name: '名称', limitations_md: '实现边界', original_markdown: '原始记录', original_answer_md: '当时的回答', source_path: '来源文件', source_baseline: '源码基线', company: '公司', job: '岗位', round: '轮次', notes: '备注', date: '日期', kind: '类型', project_id: '所属项目', topic_ids: '知识点', evidence: '源码依据', card_id: '问题', source_id: '来源', asked_question: '原始问法', section: '原记录章节', from_card_id: '关系起点', to_card_id: '关系终点', mastery: '掌握状态', favorite: '收藏', archived: '归档', revision: '历史版本编号', history: '历史版本数量' };
+const kindNames: Record<string, string> = { projects: '项目', cards: '问题资料', topics: '知识大类', sources: '面试来源', occurrences: '出现记录', relations: '问题关系' };
+const fieldNames: Record<string, string> = { id: 'ID', name: '名称', limitations_md: '实现边界', original_markdown: '原始记录', original_answer_md: '当时的回答', source_path: '来源文件', source_baseline: '源码基线', company: '公司', job: '岗位', round: '轮次', notes: '备注', date: '日期', kind: '类型', project_id: '所属项目', topic_ids: '知识大类', evidence: '源码依据', card_id: '问题', source_id: '来源', asked_question: '原始问法', section: '原记录章节', from_card_id: '关系起点', to_card_id: '关系终点', mastery: '掌握状态', favorite: '收藏', archived: '归档', revision: '历史版本编号', history: '历史版本数量' };
 const operationNames = { add: '新增', update: '修改', remove: '移除' };
 
 function print(value: unknown) {
@@ -77,7 +77,7 @@ export function ImportPreview({ changes, mode, review = true }: { changes: Chang
     {!!questions.length && <div className="change-list question-changes">{questions.map(change => <QuestionChange key={change.id} change={change} review={review} />)}</div>}
     {!!supporting.length && <details className="import-secondary">
       <summary>{mode === 'restore' ? '其他资料与恢复明细' : review ? '其他导入资料（无需逐项审阅）' : '其他导入资料'}</summary>
-      <p className="muted">{review ? '分类、知识点、来源、问题关联及系统字段会随本批保存，通常可以跳过。' : '本批次的分类、知识点、来源、问题关联及系统字段。'}</p>
+      <p className="muted">{review ? '知识大类、来源、问题关联及系统字段会随本批保存，通常可以跳过。' : '本批次的知识大类、来源、问题关联及系统字段。'}</p>
       <div className="change-list">{supporting.map(change => <SupportingChange key={`${change.kind}:${change.id}`} change={change} />)}</div>
     </details>}
   </>;

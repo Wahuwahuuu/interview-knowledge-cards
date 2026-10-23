@@ -1,4 +1,5 @@
 import { importSchema, type ImportEnvelope, type Library } from './model';
+import { knowledgeCategories, withCategory } from './topic-categories';
 
 export type ManualImportQuestion = {
   id: string;
@@ -7,6 +8,7 @@ export type ManualImportQuestion = {
   summary: string;
   answer: string;
   important?: boolean;
+  categoryId?: string;
 };
 
 export type ManualImportDraft = {
@@ -68,7 +70,9 @@ export function buildManualImportEnvelope(library: Library, draft: ManualImportD
     const existing = existingCards.get(row.id);
     if (!validId.test(row.id) || ids.has(row.id) || existing && existing.project_id !== projectId) throw new ManualImportError('这份填写内容已失效，请检查导入记录后重新填写。');
     ids.add(row.id);
-    return { ...existing, id: row.id, project_id: projectId, title, question, summary_md: row.summary, answer_md: row.answer, important: row.important ?? existing?.important };
+    if (row.categoryId && !knowledgeCategories(library.topics).some(topic => topic.id === row.categoryId)) throw new ManualImportError(`请选择第 ${number} 题的现有知识大类。`, `categoryId-${row.id}`);
+    return { ...existing, id: row.id, project_id: projectId, title, question, summary_md: row.summary, answer_md: row.answer, important: row.important ?? existing?.important,
+      topic_ids: row.categoryId === undefined ? existing?.topic_ids : withCategory(existing ?? { topic_ids: [] }, row.categoryId) };
   });
   // The submitter assigns a stable batch ID for retries of the same content.
   return importSchema.parse({ schema_version: 1, mode: 'merge', projects, cards });
