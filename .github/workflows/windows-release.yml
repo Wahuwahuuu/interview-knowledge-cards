@@ -1,0 +1,66 @@
+name: Windows Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'shared/**'
+      - 'src/**'
+      - 'migrations/**'
+      - 'public/**'
+      - 'package*.json'
+      - 'electron-builder.json'
+      - 'scripts/build-desktop.mjs'
+      - 'scripts/publish-desktop.mjs'
+      - '.github/workflows/windows-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+      CLOUDFLARE_CF_FETCH_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check whether version is already released
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = 'v' + (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $current = gh release view $tag --repo $env:GITHUB_REPOSITORY --json isDraft 2>$null
+          $exists = $LASTEXITCODE -eq 0 -and -not ($current | ConvertFrom-Json).isDraft
+          "publish=$(-not $exists)".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+          $global:LASTEXITCODE = 0
+      - if: steps.version.outputs.publish == 'true'
+        run: npm ci
+      - if: steps.version.outputs.publish == 'true'
+        run: npm run setup
+      - if: steps.version.outputs.publish == 'true'
+        run: npm test
+      - if: steps.version.outputs.publish == 'true'
+        run: npm run desktop:package
+      - name: Publish verified installer and update feed
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-desktop.mjs

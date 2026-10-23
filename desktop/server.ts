@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, sep, extname } from 'node:path';
 import app from '../worker/index';
-import { authenticate, sessionCookie, tokenHash, type Env } from '../worker/auth';
+import { assertAdmin, assertOrigin, authenticate, sessionCookie, tokenHash, type Env } from '../worker/auth';
+import type { DesktopUpdateService } from '../shared/desktop-update';
 import { AppError } from '../shared/model';
 import { z } from 'zod';
 import { LocalDatabase } from './database';
@@ -12,7 +13,7 @@ import { certificates } from './certificates';
 import { hash, randomToken, sameSecret, SyncServer } from './sync-server';
 
 const mime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
-export async function startDesktopServer(options: { dataDir: string; assets: string; migrations: string; port?: number; tlsPort?: number; guidePort?: number; lan?: boolean; bootstrap?: boolean }) {
+export async function startDesktopServer(options: { dataDir: string; assets: string; migrations: string; port?: number; tlsPort?: number; guidePort?: number; lan?: boolean; bootstrap?: boolean; updates?: DesktopUpdateService }) {
   mkdirSync(options.dataDir, { recursive: true });
   const db = new LocalDatabase(join(options.dataDir, 'knowledge-cards.sqlite'), options.migrations);
   const today = new Date().toISOString().slice(0, 10), daily = join(options.dataDir, 'backups', `daily-${today}.sqlite`);
@@ -39,9 +40,10 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
   let connectionError = '';
   const info = () => ({ dataDir: options.dataDir, database: db.filename, fingerprint: certs?.fingerprint, rootName: certs?.rootName, addresses: certs?.addresses ?? [], links: certs?.addresses.map(ip => ({ ip, setup: `http://${ip}:${guidePort}`, app: `https://${ip}:${tlsPort}` })) ?? [], hostname: certs?.names[0], tlsPort, guidePort, backupDir: join(options.dataDir, 'backups'), agentCredential: credentialFile, connectionError });
   const sync = new SyncServer(db, env, '', info);
-  let serial = Promise.resolve();
+  let serial = Promise.resolve(), preparingUpdate = false;
   async function dispatch(request: Request, remoteAddress: string) {
     const url = new URL(request.url), path = url.pathname;
+    if (preparingUpdate) throw new AppError(503, '客户端正在准备更新，尚未提交的手机修改会继续保留，请稍后重新连接', 'APP_UPDATING');
     const hostAllowed = url.origin === origin || certs && (certs.addresses.includes(url.hostname) || certs.names.includes(url.hostname) || url.hostname === '127.0.0.1') && url.protocol === 'https:' && url.port === String(tlsPort);
     if (!hostAllowed) throw new AppError(403, '连接地址不正确');
     if (path === '/desktop-bootstrap') {
@@ -52,6 +54,24 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
     }
     // Phone devices use the limited sync protocol; account administration and AI stay on loopback.
     if (url.origin !== origin && (path.startsWith('/api/') && !path.startsWith('/api/v1/sync/') && path !== '/api/v1/runtime' || path.startsWith('/bootstrap-admin/'))) throw new AppError(403, '请在电脑客户端管理账户或导入凭证');
+    if (path === '/api/v1/desktop/update' || path.startsWith('/api/v1/desktop/update/')) {
+      if (url.origin !== origin) throw new AppError(403, '请在电脑客户端更新软件');
+      const identity = await authenticate(request, env); assertAdmin(identity); assertOrigin(request, env);
+      const updates = options.updates;
+      if (!updates) return Response.json({ version: '', phase: 'disabled', message: '当前运行方式不支持自动更新，请使用 Windows 安装版。' });
+      if (path === '/api/v1/desktop/update' && request.method === 'GET') return Response.json(updates.status());
+      if (request.method === 'POST' && path === '/api/v1/desktop/update/check') {
+        z.object({}).strict().parse(await request.json()); updates.check(); return Response.json(updates.status());
+      }
+      if (request.method === 'POST' && path === '/api/v1/desktop/update/install') {
+        z.object({ confirmed: z.literal(true) }).strict().parse(await request.json());
+        if (updates.status().phase !== 'ready') throw new AppError(409, '更新尚未下载完成，请等待后重试', 'UPDATE_NOT_READY');
+        // Finish this HTTP request and release the operation queue before the
+        // updater waits for outstanding writes and takes its backup.
+        setImmediate(() => updates.install()); return Response.json({ ...updates.status(), phase: 'installing', message: '正在备份题库并准备重启…' });
+      }
+      throw new AppError(404, '更新接口不存在');
+    }
     const result = await sync.handle(request, remoteAddress); if (result) return result;
     if (path.startsWith('/bootstrap-admin/')) {
       const identity = await authenticate(request, env); if (identity.user_id !== 'admin' || identity.role !== 'admin') throw new AppError(403, '请在管理员客户端设置密码');
@@ -122,6 +142,13 @@ export async function startDesktopServer(options: { dataDir: string; assets: str
     } catch (error) { connectionError = '手机连接服务未启动：' + (error instanceof Error ? error.message : String(error)); httpsServer?.close(); guideServer?.close(); }
   }
   writeFileSync(join(options.dataDir, 'connection.json'), JSON.stringify({ origin, ...info(), connectionError }, null, 2));
-  return { db, origin, bootstrapUrl: `${origin}/desktop-bootstrap?key=${launchToken}`, info, sync, connectionError, async close() { await serial; await Promise.all([server, httpsServer, guideServer].filter(Boolean).map(item => new Promise<void>(resolve => item!.close(() => resolve())))); db.close(); } };
+  return { db, origin, bootstrapUrl: `${origin}/desktop-bootstrap?key=${launchToken}`, info, sync, connectionError,
+    async prepareUpdateBackup(path: string) {
+      preparingUpdate = true;
+      try { await serial; await db.saveBackup(path); }
+      catch (error) { preparingUpdate = false; throw error; }
+    },
+    async close() { await serial; await Promise.all([server, httpsServer, guideServer].filter(Boolean).map(item => new Promise<void>(resolve => item!.close(() => resolve())))); db.close(); }
+  };
 }
 function listen(server: Server, port: number, host: string) { return new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve(); }); }); }

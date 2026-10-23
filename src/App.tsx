@@ -266,7 +266,7 @@ export default function App() {
 
   if (window.location.pathname.startsWith('/bootstrap-admin/') || (!loading && (authError || account?.needs_password_setup))) return <AuthView setup={account?.needs_password_setup ? account : undefined} onLogin={async () => { setPage('home'); setProjectId(undefined); setDetailId(undefined); setManageTab('imports'); await refresh(); }} />;
 
-  return <div className="app-shell">
+  return <div className="app-shell" data-update-blocked={dirty || cardSaves.saving || operationBusy || projectOrderBusy.current || undefined}>
     <aside id="app-navigation" className={'sidebar ' + (sidebar ? 'open' : '')}>
       <button className="brand" onClick={() => navigate('home', undefined)}><img src="/icon.svg" alt="" /><span>面试知识卡<small>把经验，变成自己的答案</small></span></button>
       <div className="side-section"><span className="side-label">我的书架</span><nav><button className={page === 'home' ? 'active' : ''} onClick={() => navigate('home', undefined)}><House size={18} />首页</button><button className={page === 'projects' ? 'active' : ''} onClick={() => navigate('projects', undefined)}><LayoutGrid size={18} />全部项目<span className="nav-count">{library?.projects.length ?? 0}</span></button><button className={page === 'practice' ? 'active' : ''} onClick={() => practice()}><GraduationCap size={18} />翻卡自测</button><button className={page === 'graph' ? 'active' : ''} onClick={() => navigate('graph', undefined)}><GitBranch size={18} />知识图谱</button></nav></div>

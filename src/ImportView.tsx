@@ -30,7 +30,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
   const [batches, setBatches] = useState<ImportBatch[]>([]), [selected, setSelected] = useState<ImportBatch | null>(null);
   const [running, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [fileName, setFileName] = useState('');
   const busy = running || pendingStateSave;
-  const [manualResetKey, setManualResetKey] = useState(0);
+  const [manualResetKey, setManualResetKey] = useState(0), [manualDirty, setManualDirty] = useState(false);
   const [confirmationBatch, setConfirmationBatch] = useState<ImportBatch | null>(null);
   const [cancellationBatch, setCancellationBatch] = useState<ImportBatch | null>(null);
   const cancelling = useRef(false);
@@ -86,7 +86,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
       const result = await submitImport.current(envelope);
       onLibrary(result.library); showPreview(result.batch);
       notify(result.already_applied ? '这批内容已导入，记录已更新' : '导入成功，题库已更新');
-      if (manual && submittedVersion === manualEditVersion.current) setManualResetKey(key => key + 1);
+      if (manual && submittedVersion === manualEditVersion.current) { setManualResetKey(key => key + 1); setManualDirty(false); }
     } finally { await refresh(); }
   }
   async function retryBatch(batch: ImportBatch) {
@@ -173,9 +173,9 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     </div></div>}
     {selectedHere.mode === 'merge' && ['pending', 'failed'].includes(selectedHere.status) && <div className="split-actions"><span className="microcopy">{selectedHere.status === 'failed' ? '填写的内容和这条记录会保留。' : '这条记录尚未导入，点击导入后直接保存。'}</span><div className="button-row"><button className="primary" disabled={busy || offline} onClick={() => void retryBatch(selectedHere)}><Upload size={16} />{busy ? '正在导入…' : selectedHere.status === 'failed' ? '重试导入' : '导入这条记录'}</button></div></div>}
   </section>;
-  return <div className="import-view">
+  return <div className="import-view" data-update-blocked={manualDirty || busy || undefined}>
     <div hidden={view !== 'import'} className="human-import-page">
-      <ManualImportForm library={library} offline={offline} busy={busy} resetKey={manualResetKey} onEdit={() => { manualEditVersion.current++; }} onImport={envelope => run(() => importEnvelope(validateMergeImport(envelope, library), true))} />
+      <ManualImportForm library={library} offline={offline} busy={busy} resetKey={manualResetKey} onEdit={() => { manualEditVersion.current++; setManualDirty(true); }} onImport={envelope => run(() => importEnvelope(validateMergeImport(envelope, library), true))} />
       <section className="panel json-import-tools" aria-label="JSON 文件导入">
         <div><h3><FileJson size={19} />使用 JSON 文件导入</h3><p className="muted">上传后自动解析并直接导入，结果保存在下方记录中。</p></div>
         <div className="button-row"><button className="secondary" onClick={template}><Download size={16} />下载 JSON 模板</button><button className="secondary" disabled={offline || busy} onClick={() => file.current?.click()}><Upload size={16} />上传 JSON</button></div>
