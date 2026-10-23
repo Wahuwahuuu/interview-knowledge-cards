@@ -8,7 +8,7 @@ export type UpdateBackend = {
   allowDowngrade: boolean;
   allowPrerelease: boolean;
   on(event: string, listener: (...args: any[]) => void): unknown;
-  checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null } | null>;
+  checkForUpdates(): Promise<{ downloadPromise?: Promise<unknown> | null; cancellationToken?: { cancel(): void } } | null>;
   quitAndInstall(silent: boolean, runAfter: boolean): void;
 };
 
@@ -16,6 +16,8 @@ export class DesktopUpdater {
   private state: DesktopUpdateStatus;
   private checking?: Promise<void>;
   private installing = false;
+  private downloadTimer?: ReturnType<typeof setTimeout>;
+  private cancelDownload?: () => void;
 
   constructor(private options: {
     version: string;
@@ -37,8 +39,8 @@ export class DesktopUpdater {
     backend.allowPrerelease = false;
     backend.on('checking-for-update', () => this.set({ phase: 'checking', message: '正在检查新版本…', progress: undefined }));
     backend.on('update-not-available', () => this.set({ phase: 'idle', checkedAt: new Date().toISOString(), availableVersion: undefined, message: '已是最新版本。' }));
-    backend.on('update-available', (info: { version: string }) => this.set({ phase: 'downloading', availableVersion: info.version, progress: 0, checkedAt: new Date().toISOString(), message: '发现新版本，正在后台下载；可以继续使用题库。' }));
-    backend.on('download-progress', (info: { percent: number }) => this.set({ phase: 'downloading', progress: Number.isFinite(info.percent) ? Math.max(0, Math.min(100, info.percent)) : 0 }));
+    backend.on('update-available', (info: { version: string }) => { this.set({ phase: 'downloading', availableVersion: info.version, progress: 0, checkedAt: new Date().toISOString(), message: '发现新版本，正在后台下载；可以继续使用题库。' }); this.watchDownload(); });
+    backend.on('download-progress', (info: { percent: number }) => { this.set({ phase: 'downloading', progress: Number.isFinite(info.percent) ? Math.max(0, Math.min(100, info.percent)) : 0 }); this.watchDownload(); });
     backend.on('update-downloaded', (info: { version: string }) => {
       this.set({ phase: 'ready', availableVersion: info.version, progress: 100, message: '新版本已下载并校验。保存编辑后，点击“重启更新”。' });
       options.onReady?.();
@@ -47,7 +49,18 @@ export class DesktopUpdater {
   }
 
   status() { return { ...this.state }; }
-  private set(patch: Partial<DesktopUpdateStatus>) { this.state = { ...this.state, ...patch }; }
+  private set(patch: Partial<DesktopUpdateStatus>) {
+    this.state = { ...this.state, ...patch };
+    if (patch.phase && patch.phase !== 'downloading') { if (this.downloadTimer) clearTimeout(this.downloadTimer); this.downloadTimer = undefined; this.cancelDownload = undefined; }
+  }
+  private watchDownload() {
+    if (this.downloadTimer) clearTimeout(this.downloadTimer);
+    this.downloadTimer = setTimeout(() => {
+      if (this.state.phase !== 'downloading') return;
+      this.cancelDownload?.(); this.failed(new Error('Update download made no progress for two minutes'));
+    }, 120000);
+    this.downloadTimer.unref?.();
+  }
   private failed(error: unknown) {
     this.options.log?.(error);
     const duringInstall = this.state.phase === 'installing';
@@ -63,6 +76,7 @@ export class DesktopUpdater {
     const work = (async () => {
       try {
         const result = await backend.checkForUpdates();
+        if (this.state.phase === 'downloading' && result?.cancellationToken) this.cancelDownload = () => result.cancellationToken!.cancel();
         // Downloads continue after the check returns. Observe their errors too.
         if (result?.downloadPromise) void result.downloadPromise.catch(error => this.failed(error));
       } catch (error) { this.failed(error); }

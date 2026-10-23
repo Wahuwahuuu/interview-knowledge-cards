@@ -4,7 +4,7 @@ import { DesktopUpdater, UpdatePreparationError } from '../desktop/updater';
 
 class Backend extends EventEmitter {
   autoDownload = false; autoInstallOnAppQuit = true; allowDowngrade = true; allowPrerelease = true;
-  checkForUpdates = vi.fn(async (): Promise<{ downloadPromise?: Promise<unknown> } | null> => null);
+  checkForUpdates = vi.fn(async (): Promise<{ downloadPromise?: Promise<unknown>; cancellationToken?: { cancel(): void } } | null> => null);
   quitAndInstall = vi.fn();
 }
 const setup = (beforeInstall = vi.fn(async () => {})) => {
@@ -66,5 +66,16 @@ describe('Windows 自动更新保护', () => {
     const copy = manager.status(); copy.phase = 'disabled'; expect(manager.status().phase).toBe('ready');
     await manager.install(); backend.emit('error', new Error('installer blocked'));
     expect(manager.status().phase).toBe('error'); expect(failure).toHaveBeenCalledTimes(1);
+  });
+  it('下载停滞时取消并可重试，有进度时延长等待，不误装半个安装包', async () => {
+    vi.useFakeTimers();
+    try {
+      const { backend, manager } = setup(), cancel = vi.fn();
+      backend.checkForUpdates.mockImplementationOnce(async () => { backend.emit('update-available', { version: '2.0.3' }); return { cancellationToken: { cancel } }; });
+      await manager.check(); await vi.advanceTimersByTimeAsync(110000); expect(cancel).not.toHaveBeenCalled();
+      backend.emit('download-progress', { percent: 30 }); await vi.advanceTimersByTimeAsync(110000); expect(cancel).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(10000); expect(cancel).toHaveBeenCalledTimes(1); expect(manager.status().phase).toBe('error');
+      await manager.install(); expect(backend.quitAndInstall).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });
