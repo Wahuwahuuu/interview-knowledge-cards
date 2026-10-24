@@ -1,10 +1,14 @@
 import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly';
+
+// CJK punctuation can touch emphasis markers without inserting spaces into stored text.
+const remarkPlugins = [remarkGfm, remarkCjkFriendly];
 
 export function safeHref(href: string) { return /^https?:\/\//i.test(href) ? href : ''; }
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
-  return <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml urlTransform={safeHref} components={{
+  return <div className="markdown"><ReactMarkdown remarkPlugins={remarkPlugins} skipHtml urlTransform={safeHref} components={{
     a: ({ href, children }) => href ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span className="local-link" title="此链接暂时无法打开">{children}</span>,
     img: ({ alt }) => <span className="muted">{alt ? `[图片：${alt}]` : '[图片引用]'}</span>,
     table: ({ children }) => <div className="table-scroll"><table>{children}</table></div>,
@@ -15,5 +19,5 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
 export const InlineMarkdown = memo(function InlineMarkdown({ text, questionTitle = false }: { text: string; questionTitle?: boolean }) {
   const visibleText = questionTitle ? text.replace(/^\s*\d+\s*[.．、)）·:-]\s+/u, '') : text;
   const inlineText = visibleText.replace(/^(\s*\d+)([.)])(?=\s)/gm, '$1\\$2');
-  return <span className="inline-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml allowedElements={['p', 'strong', 'em', 'code', 'del', 'br']} unwrapDisallowed components={{ p: ({ children }) => <span>{children}</span> }}>{inlineText}</ReactMarkdown></span>;
+  return <span className="inline-markdown"><ReactMarkdown remarkPlugins={remarkPlugins} skipHtml allowedElements={['p', 'strong', 'em', 'code', 'del', 'br']} unwrapDisallowed components={{ p: ({ children }) => <span>{children}</span> }}>{inlineText}</ReactMarkdown></span>;
 });
