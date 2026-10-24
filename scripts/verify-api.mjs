@@ -4,6 +4,7 @@ import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { verifyDirectImport } from './verify-direct-import.mjs';
 import { verifyProjectOrder } from './verify-project-order.mjs';
+import { verifyCardEdit } from './verify-card-edit.mjs';
 const origin = 'http://127.0.0.1:8788', reports = [], stamp = crypto.randomUUID();
 const env = { ...process.env, WRANGLER_SEND_METRICS: 'false', CLOUDFLARE_CF_FETCH_ENABLED: 'false' };
 const migration = spawnSync(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'd1', 'migrations', 'apply', 'DB', '--local', '--config', 'wrangler.test.jsonc'], { encoding: 'utf8', env, windowsHide: true });
@@ -223,6 +224,7 @@ try {
   for (const kind of ['projects', 'cards', 'sources', 'topics', 'occurrences', 'relations', 'revisions']) assert.deepEqual(state[kind], beforeProjectDelete[kind]);
   report('完整备份能够恢复已删除项目、归档卡片和所有原有关联');
   await verifyDirectImport({ ok, request, library, report, stamp });
+  await verifyCardEdit({ ok, request, library, report, stamp });
   const staticFiles = await readdir('dist/assets'); let staticText = await readFile('dist/index.html', 'utf8'); for (const name of staticFiles) if (name.endsWith('.js')) staticText += await readFile(join('dist/assets', name), 'utf8');
   assert.ok(!staticText.includes(seed.occurrences[0].original_answer_md.slice(0, 55))); assert.ok(!staticText.includes('admin@example.com')); report('公开构建资源不包含私有问答或账户邮箱');
   await mkdir('test-results', { recursive: true }); await writeFile('test-results/api-verification.json', JSON.stringify({ passed: true, at: new Date().toISOString(), database: 'interview-cards-tests', scenarios: reports }, null, 2));

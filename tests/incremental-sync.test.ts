@@ -12,6 +12,7 @@ import { planIncremental,commitIncremental } from '../worker/incremental-store';
 import { emptyLibrary,importSchema,prepareImport,type Library } from '../shared/model';
 import { changesBetween } from '../shared/sync';
 import { applyLibraryDelta } from '../shared/apply-delta';
+import { cardEditRequest } from '../shared/card-edit';
 
 const migrations=resolve('migrations'),site='https://delta.example.test';
 const sample=()=>prepareImport(emptyLibrary(),importSchema.parse({schema_version:1,projects:[{id:'p',name:'示例题库'}],cards:[{id:'q',project_id:'p',title:'事务',question:'事务是什么？',summary_md:'初始口述',answer_md:'初始讲解'}]}));
@@ -77,6 +78,15 @@ describe('网站与客户端只同步变化记录',()=>{
     const code=(await (await request('device-sync/code',{})).json() as any).code;await server.cloud.connect('admin',{site,code,name:'示例电脑'});await server.cloud.enable('admin');await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).incremental).toBe(true);remoteSQL=trace(remote);localSQL=trace(server.db);traffic.length=0;
   });
   afterEach(async()=>{await server.close();remote.close();});
+  it('网页按单卡保存后自动传到本机，本机继续修改可回到网站，保留原连接',async()=>{
+    const base=await readLibrary(remote.asD1(),'admin'),card=base.cards[0];
+    const response=await app.fetch(new Request(site+'/api/v1/cards/q',{method:'PATCH',headers:{Origin:site,Cookie:'__Host-interview_session='+cookie,'Content-Type':'application/json'},body:JSON.stringify(cardEditRequest(card,{...card,summary_md:'网页精简口述',answer_md:'网页对应讲解'},base.revision))}),env);
+    expect(response.status).toBe(200);remoteSQL.length=0;localSQL.length=0;traffic.length=0;
+    await server.cloud.syncNow('admin');expect((await readLocal()).cards[0]).toMatchObject({summary_md:'网页精简口述',answer_md:'网页对应讲解'});
+    expect(traffic.some(row=>row.path.endsWith('/snapshot')||row.path.endsWith('/connect'))).toBe(false);
+    await edit('local',{answer_md:'本机补充讲解'});await server.cloud.syncNow('admin');
+    expect((await readLibrary(remote.asD1(),'admin')).cards[0]).toMatchObject({summary_md:'网页精简口述',answer_md:'本机补充讲解'});expect((await server.cloud.status('admin')).phase).toBe('idle');
+  });
   it('空闲、拉取、上传均无整库读取；修改一题只返回这一题，上传后不再拉完整快照',async()=>{
     await server.cloud.syncNow('admin');expect(traffic.every(row=>row.records===0)).toBe(true);expect(fullReads(remoteSQL)).toEqual([]);expect(fullReads(localSQL)).toEqual([]);
     await edit('remote',{answer_md:'网站新答案'});remoteSQL.length=0;localSQL.length=0;traffic.length=0;await server.cloud.syncNow('admin');expect(traffic.some(row=>row.path.endsWith('/pull')&&row.records===1)).toBe(true);expect(fullReads(remoteSQL)).toEqual([]);expect(fullReads(localSQL)).toEqual([]);expect((await readLocal()).cards[0].answer_md).toBe('网站新答案');

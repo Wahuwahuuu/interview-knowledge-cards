@@ -4,6 +4,7 @@ import { cardSchema, occurrenceSchema, projectSchema, relationSchema, sourceSche
 import { api, newId } from './api';
 import { canLinkFollowup, orderedFollowups } from '../shared/followups';
 import { cardCategories, knowledgeCategories, withCategory } from '../shared/topic-categories';
+import { saveCard } from './card-edit-actions';
 
 export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false, initialFocusRef, descriptionId }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean; initialFocusRef?: RefObject<HTMLElement | null>; descriptionId?: string }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
@@ -30,20 +31,22 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 type FormProps = { library: Library; expectedRevision: number; onSaved: (library: Library) => void; onDirty: (dirty: boolean) => void; onError: (error: unknown) => void };
 function useSubmit(props: FormProps) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  return { busy, error, submit: async (changes: Record<string, unknown>) => {
+  const run = async (save: () => Promise<Library>) => {
     setBusy(true); setError('');
-    try { const next = await api<Library>('/changes', { method: 'POST', body: JSON.stringify({ expected_revision: props.expectedRevision, changes: { schema_version: 1, ...changes } }) }); props.onDirty(false); props.onSaved(next); }
+    try { const next = await save(); props.onDirty(false); props.onSaved(next); }
     catch (error) { setError(error instanceof Error ? error.message : '保存失败'); props.onError(error); }
     finally { setBusy(false); }
-  } };
+  };
+  return { busy, error, submit: (changes: Record<string, unknown>) => run(() => api<Library>('/changes', { method: 'POST', body: JSON.stringify({ expected_revision: props.expectedRevision, changes: { schema_version: 1, ...changes } }) })), save: run };
 }
 export function CardForm(props: FormProps & { initial: Card }) {
   const [value, setValue] = useState(props.initial);
-  const { busy, error, submit } = useSubmit(props);
+  const before = useRef(props.library.cards.find(card => card.id === props.initial.id) ?? null);
+  const { busy, error, save } = useSubmit(props);
   function set<K extends keyof Card>(key: K, next: Card[K]) { setValue(v => ({ ...v, [key]: next })); props.onDirty(true); }
   return <form onSubmit={event => {
     event.preventDefault();
-    void submit({ cards: [{ ...value, topic_ids: withCategory(value, cardCategories(value, props.library.topics)[0]?.id ?? '') }] });
+    void save(() => saveCard(props.library, props.expectedRevision, before.current, { ...value, topic_ids: withCategory(value, cardCategories(value, props.library.topics)[0]?.id ?? '') }));
   }}>
     <div className="form-row"><Field label="所属项目"><select value={value.project_id} onChange={e => set('project_id', e.target.value)}>{props.library.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="卡片标题"><input required value={value.title} onChange={e => set('title', e.target.value)} placeholder="例如：并发增长与性能调优" /></Field></div>
     <Field label="问题"><textarea required rows={3} value={value.question} onChange={e => set('question', e.target.value)} placeholder="让问题在脱离原对话时也能理解" /></Field>
@@ -97,14 +100,16 @@ export function FollowupForm(props: FormProps & { card: Card }) {
   const [mode, setMode] = useState<'new' | 'existing'>('new'), [target, setTarget] = useState('');
   const [value, setValue] = useState(() => cardSchema.parse({ id: newId('card'), project_id: props.card.project_id, title: '追问', question: '追问', topic_ids: withCategory(props.card, cardCategories(props.card, props.library.topics)[0]?.id ?? '') }));
   const [question, setQuestion] = useState('');
-  const { busy, error, submit } = useSubmit(props);
+  const { busy, error, submit, save } = useSubmit(props);
   const existing = orderedFollowups(props.library, props.card.id);
   const choices = props.library.cards.filter(card => !card.archived && !existing.some(r => r.to_card_id === card.id) && canLinkFollowup(props.library, props.card.id, card.id));
   return <form onSubmit={event => {
     event.preventDefault();
     const next = { ...value, question: question.trim(), title: question.trim().split('\n')[0].slice(0, 150) };
     if ((mode === 'new' && !next.question) || (mode === 'existing' && !target)) return;
-    void submit({ cards: mode === 'new' ? [next] : [], relations: [relationSchema.parse({ id: newId('relation'), from_card_id: props.card.id, to_card_id: mode === 'new' ? value.id : target, kind: 'followup', order: Math.max(0, ...existing.map(r => r.order ?? 0)) + 1 })] });
+    const relation = { id: newId('relation'), parent_id: props.card.id, order: Math.max(0, ...existing.map(r => r.order ?? 0)) + 1 };
+    if (mode === 'new') void save(() => saveCard(props.library, props.expectedRevision, null, next, relation));
+    else void submit({ relations: [relationSchema.parse({ id: relation.id, from_card_id: relation.parent_id, to_card_id: target, kind: 'followup', order: relation.order })] });
   }}>
     <p className="muted">主问题：{props.card.question.split('\n')[0]}</p>
     <div className="segmented followup-mode" role="group" aria-label="添加追问方式"><button type="button" className={mode === 'new' ? 'selected' : ''} aria-pressed={mode === 'new'} onClick={() => setMode('new')}>新建追问</button><button type="button" className={mode === 'existing' ? 'selected' : ''} aria-pressed={mode === 'existing'} onClick={() => setMode('existing')}>关联已有知识卡</button></div>

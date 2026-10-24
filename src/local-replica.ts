@@ -4,6 +4,7 @@ import { removeCard } from '../shared/card-actions';
 import { removeProject } from '../shared/project-actions';
 import { applyProjectOrder, projectOrderRequestSchema } from '../shared/project-order';
 import { cardState, cardStateRequestSchema } from '../shared/card-state';
+import { cardEditRelation, cardEditRequestSchema, cardEditValue } from '../shared/card-edit';
 import { applySyncLogs, changesBetween, mergeOperation, type SyncLog, type SyncOperation, type SyncResult, type SyncSnapshot } from '../shared/sync';
 
 export type QueuedOperation = { operation: SyncOperation; conflicts?: SyncResult['conflicts']; error?: string };
@@ -122,6 +123,11 @@ export async function replicaApi(path: string, init: RequestInit): Promise<unkno
       if (value.card_revision !== card.revision) throw new AppError(409, '知识卡已更新，请重试', 'REVISION_CONFLICT');
       const next = { ...card, ...value.patch, updated_at: now };
       target = { ...base, cards: base.cards.map(card => card.id === next.id ? next : card) }; result = { card: cardState(next) };
+    } else if (entity?.[1] === 'cards' && method === 'PATCH') {
+      const value = cardEditRequestSchema.parse(input), card = base.cards.find(card => card.id === entity[2]) ?? null;
+      const next = cardEditValue(entity[2], card, value), relation = cardEditRelation(entity[2], value);
+      target = localImport(base, importSchema.parse({ schema_version: 1, cards: [next], relations: relation ? [relation] : [] }), now);
+      result = { card: target.cards.find(card => card.id === entity[2]), ...(relation ? { relation: target.relations.find(row => row.id === relation.id) } : {}) };
     } else if (path === '/projects/order' && method === 'PUT') {
       target = { ...base, projects: applyProjectOrder(base.projects, projectOrderRequestSchema.parse(input).project_ids, now) }; result = { projects: target.projects };
     } else if (path === '/changes' && method === 'POST') target = localImport(base, importSchema.parse(input.changes), now);

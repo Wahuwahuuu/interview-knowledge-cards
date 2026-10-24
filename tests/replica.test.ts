@@ -14,6 +14,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('iPhone 持久化副本', () => {
+  it('离线新建追问把卡片和主追问关联一起写入持久队列', async () => {
+    let client = await seed(); const before = client.getReplica()!.library;
+    const result = await client.replicaApi('/cards/child', { method: 'PATCH', body: JSON.stringify({ expected_revision: before.revision, card_revision: null, patch: { project_id: 'p', title: '具体追问', question: '追问？', summary_md: '短口述' }, followup: { id: 'link', parent_id: 'q', order: 1 } }) }) as any;
+    expect(result.relation).toMatchObject({ from_card_id: 'q', to_card_id: 'child' });
+    vi.resetModules(); client = await import('../src/local-replica'); await client.initializeRuntime();
+    expect(client.getReplica()!.pending[0].operation.changes.map(row => row.kind).sort()).toEqual(['cards', 'relations']);
+    expect(client.getReplica()!.library.relations[0]).toMatchObject({ from_card_id: 'q', to_card_id: 'child' });
+  });
+  it('单卡稀疏保存保持离线队列，重启后保留答案与未提交字段', async () => {
+    let client = await seed(); const before = client.getReplica()!.library;
+    const result = await client.replicaApi('/cards/q', { method: 'PATCH', body: JSON.stringify({ expected_revision: before.revision, card_revision: before.cards[0].revision, patch: { summary_md: '**精简**口述' } }) }) as any;
+    expect(Object.keys(result).sort()).toEqual(['card', 'revision']);
+    vi.resetModules(); client = await import('../src/local-replica'); await client.initializeRuntime();
+    expect(client.getReplica()!.library.cards[0]).toMatchObject({ summary_md: '**精简**口述', answer_md: '旧讲解' }); expect(client.getReplica()!.pending).toHaveLength(1);
+    await expect(client.forgetReplica()).rejects.toThrow('待同步');
+  });
   it('解除配对后可以重新导入设备备份，不受旧存储版本阻止', async () => {
     const client = await seed(), backup = client.exportReplica();
     await client.forgetReplica(); expect(client.getReplica()).toBeUndefined();

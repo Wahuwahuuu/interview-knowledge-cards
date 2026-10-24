@@ -11,6 +11,8 @@ import { removeProject } from '../shared/project-actions';
 import { batchView, draft, getBatch, submitImport, type BatchRow } from './imports';
 import { handleCloudSync, isCloudSyncProtocol } from './cloud-sync';
 import { readJournal } from './change-journal';
+import { cardEditRequestSchema } from '../shared/card-edit';
+import { saveCardEdit } from './card-edit';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -66,6 +68,10 @@ app.put('/api/v1/projects/order', async c => {
 app.patch('/api/v1/cards/:id/state', async c => {
   const input = cardStateRequestSchema.parse(await body(c.req.raw));
   return c.json(await updateCardState(c.env.DB, c.get('identity').user_id, c.req.param('id'), input));
+});
+app.patch('/api/v1/cards/:id', async c => {
+  const input = cardEditRequestSchema.parse(await body(c.req.raw));
+  return c.json(await saveCardEdit(c.env.DB, c.get('identity').user_id, c.req.param('id'), input));
 });
 app.get('/api/v1/graph', async c => c.json({ elements: graphElements(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.query('project_id') || undefined) }));
 app.get('/api/v1/projects/:id/snapshot', async c => c.json({ downloaded_at: new Date().toISOString(), owner: c.get('identity').email, snapshot: projectSnapshot(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.param('id')) }));
