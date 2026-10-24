@@ -10,7 +10,7 @@ export async function journalHead(db:D1Database,user:string) {
 }
 export async function readRecords(db:D1Database,user:string,keys:RecordKey[]):Promise<SyncRecord[]> {
   const unique=[...new Map(keys.map(row=>[recordKey(row),row])).values()],queries:D1PreparedStatement[]=[],groups:Kind[]=[];
-  for(const kind of kinds){const ids=unique.filter(row=>row.kind===kind).map(row=>row.id);for(let offset=0;offset<ids.length;offset+=75){const part=ids.slice(offset,offset+75);queries.push(db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? AND id IN (${part.map(()=>'?').join(',')})`).bind(user,...part));groups.push(kind);}}
+  for(const kind of kinds){const ids=unique.filter(row=>row.kind===kind).map(row=>row.id);if(ids.length){queries.push(db.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? AND id IN (SELECT value FROM json_each(?))`).bind(user,JSON.stringify(ids)));groups.push(kind);}}
   const values=new Map<string,SyncRecord>();
   if(queries.length){const result=await db.batch(queries);result.forEach((rows,index)=>rows.results.forEach(row=>{const value=decodeStoredRecord(groups[index],String((row as {payload:string}).payload));const record={kind:groups[index],id:value.id,value};values.set(recordKey(record),record);}));}
   return unique.map(key=>values.get(recordKey(key))??{...key,value:null});

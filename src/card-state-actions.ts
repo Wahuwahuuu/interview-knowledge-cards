@@ -1,6 +1,7 @@
 import type { CardStatePatch, CardStateRequest, CardStateResult } from '../shared/card-state';
 import type { Library } from '../shared/model';
 import { ApiError, api, loadLibrary } from './api';
+import { refreshChangedRecords } from './record-mutation-actions';
 
 export type StateEdit = { id: string; patch: CardStatePatch; version: number };
 export type StateSaveSnapshot = { pending: StateEdit[]; failed: StateEdit[]; retrying: boolean };
@@ -89,7 +90,7 @@ export class CardStateQueue {
     const current = () => generation === this.generation && context === this.options.getContext();
     try {
       // A lost response may have committed. Refresh before explicitly retrying.
-      const library = await (this.options.reload ?? loadLibrary)();
+      const library = await (this.options.reload ?? (()=>{const current=this.options.getLibrary();return current?refreshChangedRecords(current):loadLibrary();}))();
       if (!current()) return;
       this.options.onLibrary(library);
       const deleted = [...this.failed.keys()].filter(id => !library.cards.some(card => card.id === id));

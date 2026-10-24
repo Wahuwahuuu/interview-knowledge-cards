@@ -14,6 +14,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 describe('iPhone 持久化副本', () => {
+  it('来源和关系的增量页面请求在配对手机仍离线持久保存，不发公网请求',async()=>{
+    const client=await seed(),base=client.getReplica()!.library;
+    await client.replicaApi('/changes?response=delta&cursor='+base.revision,{method:'POST',body:JSON.stringify({expected_revision:base.revision,changes:{schema_version:1,sources:[{id:'s',name:'来源',kind:'note',original_markdown:'保留原文'}],occurrences:[{id:'o',card_id:'q',source_id:'s',asked_question:'具体问法'}]}})});
+    expect(client.getReplica()!.pending).toHaveLength(1);expect(client.getReplica()!.library.sources[0].original_markdown).toBe('保留原文');expect(fetch).not.toHaveBeenCalled();
+  });
   it('离线新建追问把卡片和主追问关联一起写入持久队列', async () => {
     let client = await seed(); const before = client.getReplica()!.library;
     const result = await client.replicaApi('/cards/child', { method: 'PATCH', body: JSON.stringify({ expected_revision: before.revision, card_revision: null, patch: { project_id: 'p', title: '具体追问', question: '追问？', summary_md: '短口述' }, followup: { id: 'link', parent_id: 'q', order: 1 } }) }) as any;

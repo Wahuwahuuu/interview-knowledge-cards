@@ -1,18 +1,22 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { AppError, graphElements, importSchema, kinds, markdownExport, prepareImport, projectSnapshot, schemas, type Entity, type Library } from '../shared/model';
+import { AppError, importSchema, kinds, markdownExport, prepareImport, schemas, type Card, type Entity, type Library } from '../shared/model';
 import { assertOrigin, assertOwner, authenticate, resolveIdentity, type Env, type Identity } from './auth';
 import { commitLibrary, exportLibrary, readCardHistory, readLibrary, updateCardState, updateProjectOrder } from './store';
 import { cardStateRequestSchema } from '../shared/card-state';
 import { projectOrderRequestSchema } from '../shared/project-order';
 import accountRoutes from './accounts';
-import { removeCard } from '../shared/card-actions';
-import { removeProject } from '../shared/project-actions';
-import { batchView, draft, getBatch, submitImport, type BatchRow } from './imports';
+import { batchView, draft, getBatch, listBatches, submitImport } from './imports';
 import { handleCloudSync, isCloudSyncProtocol } from './cloud-sync';
 import { readJournal } from './change-journal';
 import { cardEditRequestSchema } from '../shared/card-edit';
 import { saveCardEdit } from './card-edit';
+import { checkRevision, deleteRecord, libraryRevision, mutationResponse, planRecordMerge } from './record-mutations';
+import { commitIncremental } from './incremental-store';
+import { readRecords } from './change-journal';
+import { decodeStoredRecord } from './stored-records';
+import { readGraph, readProjectSnapshot } from './scoped-reads';
+import { projectExport } from '../shared/project-actions';
 
 const app = new Hono<{ Bindings: Env; Variables: { identity: Identity } }>();
 app.onError((error, c) => {
@@ -53,10 +57,9 @@ function expectedRevision(input: Record<string, unknown>, library: Library) {
 }
 app.get('/api/v1/me', c => c.json(c.get('identity')));
 app.post('/api/v1/changes', async c => {
-  const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
-  expectedRevision(input, library);
-  const target = prepareImport(library, importSchema.parse(input.changes));
-  return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
+  const input=await body(c.req.raw),user=c.get('identity').user_id,plan=await planRecordMerge(c.env.DB,user,importSchema.parse(input.changes),{expectedRevision:input.expected_revision});
+  await commitIncremental(c.env.DB,user,plan.revision,plan.changes);
+  return c.json(await mutationResponse(c.env.DB,user,c.req.raw));
 });
 app.get('/api/v1/library', async c => c.json(await readLibrary(c.env.DB, c.get('identity').user_id)));
 app.get('/api/v1/library/revision', async c => c.json(await c.env.DB.prepare('SELECT revision FROM user_library_meta WHERE user_id=?').bind(c.get('identity').user_id).first() ?? {revision:0}));
@@ -73,57 +76,53 @@ app.patch('/api/v1/cards/:id', async c => {
   const input = cardEditRequestSchema.parse(await body(c.req.raw));
   return c.json(await saveCardEdit(c.env.DB, c.get('identity').user_id, c.req.param('id'), input));
 });
-app.get('/api/v1/graph', async c => c.json({ elements: graphElements(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.query('project_id') || undefined) }));
-app.get('/api/v1/projects/:id/snapshot', async c => c.json({ downloaded_at: new Date().toISOString(), owner: c.get('identity').email, snapshot: projectSnapshot(await readLibrary(c.env.DB, c.get('identity').user_id), c.req.param('id')) }));
+app.get('/api/v1/graph', async c => c.json(await readGraph(c.env.DB,c.get('identity').user_id,c.req.query('project_id')||undefined)));
+app.get('/api/v1/projects/:id/snapshot', async c => c.json({ downloaded_at: new Date().toISOString(), owner: c.get('identity').email, snapshot: await readProjectSnapshot(c.env.DB,c.get('identity').user_id,c.req.param('id')) }));
+app.get('/api/v1/projects/:id/export',async c=>c.json(projectExport(await readProjectSnapshot(c.env.DB,c.get('identity').user_id,c.req.param('id'),true),c.req.param('id'))));
 app.get('/api/v1/cards/:id/history', async c => c.json(await readCardHistory(c.env.DB, c.get('identity').user_id, c.req.param('id'))));
 app.post('/api/v1/cards/:id/restore', async c => {
-  const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
-  expectedRevision(input, library);
-  const card = library.cards.find(v => v.id === c.req.param('id'));
-  const entry = (await readCardHistory(c.env.DB, c.get('identity').user_id, c.req.param('id'))).find(v => v.revision === input.card_revision);
+  const input=await body(c.req.raw),user=c.get('identity').user_id,id=c.req.param('id'),revision=await libraryRevision(c.env.DB,user);
+  checkRevision(revision,input.expected_revision);
+  if(typeof input.card_revision!=='number'||!Number.isInteger(input.card_revision)||input.card_revision<1)throw new AppError(404,'历史版本不存在');
+  const card=(await readRecords(c.env.DB,user,[{kind:'cards',id}]))[0].value as Card|null;
+  const saved=await c.env.DB.prepare('SELECT payload FROM user_card_revisions WHERE user_id=? AND card_id=? AND revision=?').bind(user,id,input.card_revision).first<{payload:string}>();
+  const entry=saved?JSON.parse(saved.payload) as {snapshot:Card;revision:number}:undefined;
   if (!card || !entry) throw new AppError(404, '卡片或历史版本不存在');
-  const target = structuredClone(library);
   const restored = { ...entry.snapshot, favorite: card.favorite, important: card.important, mastery: card.mastery, revision: card.revision + 1, updated_at: new Date().toISOString() };
-  target.cards[target.cards.findIndex(v => v.id === card.id)] = restored;
-  target.revisions.push({ card_id: card.id, revision: restored.revision, saved_at: restored.updated_at, action: `恢复版本 ${entry.revision}`, snapshot: restored });
-  return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
+  const plan=await planRecordMerge(c.env.DB,user,importSchema.parse({schema_version:1,cards:[restored]}),{expectedRevision:input.expected_revision});
+  if(!plan.changes.length)plan.changes.push({kind:'cards',id,before:card,after:restored});
+  await commitIncremental(c.env.DB,user,revision,plan.changes,[],`恢复版本 ${entry.revision}`);
+  return c.json(await mutationResponse(c.env.DB,user,c.req.raw));
 });
 
 for (const kind of kinds) {
-  app.get(`/api/v1/${kind}`, async c => c.json((await readLibrary(c.env.DB, c.get('identity').user_id))[kind]));
+  app.get(`/api/v1/${kind}`, async c => c.json((await c.env.DB.prepare(`SELECT payload FROM user_${kind} WHERE user_id=? ORDER BY id`).bind(c.get('identity').user_id).all<{payload:string}>()).results.map(row=>decodeStoredRecord(kind,row.payload))));
   app.put(`/api/v1/${kind}/:id`, async c => {
-    const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
-    expectedRevision(input, library);
+    const input = await body(c.req.raw), user=c.get('identity').user_id,revision=await libraryRevision(c.env.DB,user);
+    checkRevision(revision,input.expected_revision);
     const value = schemas[kind].parse(input.value) as Entity;
     if (value.id !== c.req.param('id')) throw new AppError(422, '路径与记录 ID 不一致');
-    const old = (library[kind] as Entity[]).find(v => v.id === value.id);
+    const old = (await readRecords(c.env.DB,user,[{kind,id:value.id}]))[0].value;
     if (old && value.revision !== old.revision) throw new AppError(409, '此记录已有新版本，请刷新后再修改', 'REVISION_CONFLICT');
     const envelope = importSchema.parse({ schema_version: 1, [kind]: [value] });
-    const target = prepareImport(library, envelope);
-    return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
+    const plan=await planRecordMerge(c.env.DB,user,envelope,{expectedRevision:input.expected_revision});
+    await commitIncremental(c.env.DB,user,plan.revision,plan.changes);
+    return c.json(await mutationResponse(c.env.DB,user,c.req.raw));
   });
   app.delete(`/api/v1/${kind}/:id`, async c => {
-    const input = await body(c.req.raw), library = await readLibrary(c.env.DB, c.get('identity').user_id);
-    expectedRevision(input, library);
-    if (!library[kind].some(v => v.id === c.req.param('id'))) throw new AppError(404, '记录不存在');
-    if (kind === 'cards') return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, removeCard(library, c.req.param('id'))));
-    if (kind === 'projects') return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, removeProject(library, c.req.param('id'))));
-    if (kind === 'sources' || kind === 'occurrences') throw new AppError(422, '原始问答与来源记录保留供追溯');
-    const target = structuredClone(library);
-    (target[kind] as Entity[]) = (target[kind] as Entity[]).filter(v => v.id !== c.req.param('id'));
-    return c.json(await commitLibrary(c.env.DB, c.get('identity').user_id, library, target));
+    const input=await body(c.req.raw),user=c.get('identity').user_id;
+    await deleteRecord(c.env.DB,user,kind,c.req.param('id'),input.expected_revision);
+    return c.json(await mutationResponse(c.env.DB,user,c.req.raw));
   });
 }
 
-app.get('/api/v1/imports', async c => {
-  const result = await c.env.DB.prepare('SELECT * FROM user_import_batches WHERE user_id=? ORDER BY created_at DESC LIMIT 100').bind(c.get('identity').user_id).all<BatchRow>();
-  return c.json(result.results.map(batchView));
-});
+app.get('/api/v1/imports', async c => c.json(await listBatches(c.env.DB,c.get('identity').user_id)));
 app.get('/api/v1/imports/:id', async c => c.json(batchView(await getBatch(c.env.DB, c.get('identity').user_id, c.req.param('id')))));
-app.post('/api/v1/imports/submit', async c => c.json(await submitImport(c.env.DB, c.get('identity').user_id, await body(c.req.raw))));
+app.post('/api/v1/imports/submit', async c => {const user=c.get('identity').user_id,result=await submitImport(c.env.DB,user,await body(c.req.raw));return c.json(await mutationResponse(c.env.DB,user,c.req.raw,result));});
 app.post('/api/v1/imports/:id/retry', async c => {
   const batch = await getBatch(c.env.DB, c.get('identity').user_id, c.req.param('id'));
-  return c.json(await submitImport(c.env.DB, c.get('identity').user_id, { ...JSON.parse(batch.payload), batch_id: batch.id }));
+  const user=c.get('identity').user_id,result=await submitImport(c.env.DB,user,{...JSON.parse(batch.payload),batch_id:batch.id});
+  return c.json(await mutationResponse(c.env.DB,user,c.req.raw,result));
 });
 app.post('/api/v1/imports/preview', async c => c.json(await draft(c.env.DB, c.get('identity').user_id, await body(c.req.raw))));
 app.post('/api/v1/imports/:id/repreview', async c => {
@@ -133,12 +132,19 @@ app.post('/api/v1/imports/:id/repreview', async c => {
 app.post('/api/v1/imports/:id/apply', async c => {
   assertOwner(c.get('identity'));
   const input = await body(c.req.raw), batch = await getBatch(c.env.DB, c.get('identity').user_id, c.req.param('id'));
-  if (batch.status === 'applied') return c.json({ batch: batchView(batch), library: await readLibrary(c.env.DB, c.get('identity').user_id), already_applied: true });
+  if (batch.status === 'applied') return c.json(await mutationResponse(c.env.DB,c.get('identity').user_id,c.req.raw,{batch:batchView(batch),already_applied:true}));
   if (batch.status !== 'pending') throw new AppError(409, '这个导入批次已经取消', 'IMPORT_CANCELLED');
+  const envelope = importSchema.parse(JSON.parse(batch.payload));
+  if(envelope.mode==='merge'){
+    const user=c.get('identity').user_id,plan=await planRecordMerge(c.env.DB,user,envelope,{expectedRevision:input.expected_revision});
+    checkRevision(plan.revision,batch.base_revision);
+    const guard=crypto.randomUUID();
+    await commitIncremental(c.env.DB,user,plan.revision,plan.changes,[c.env.DB.prepare("INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN EXISTS(SELECT 1 FROM user_import_batches WHERE user_id=? AND id=? AND status='pending' AND base_revision=?) THEN 1 ELSE 0 END)").bind(user,guard,user,batch.id,plan.revision),c.env.DB.prepare("UPDATE user_import_batches SET status='applied',applied_at=?,error_message='' WHERE user_id=? AND id=?").bind(new Date().toISOString(),user,batch.id),c.env.DB.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(user,guard)]);
+    return c.json(await mutationResponse(c.env.DB,user,c.req.raw,{batch:batchView(await getBatch(c.env.DB,user,batch.id)),already_applied:false}));
+  }
   const library = await readLibrary(c.env.DB, c.get('identity').user_id);
   expectedRevision(input, library);
   if (batch.base_revision !== library.revision) throw new AppError(409, '预览后题库发生了变化，请重新预览', 'REVISION_CONFLICT');
-  const envelope = importSchema.parse(JSON.parse(batch.payload));
   const target = prepareImport(library, envelope);
   const next = await commitLibrary(c.env.DB, c.get('identity').user_id, library, target, { restore: envelope.mode === 'restore', batchId: batch.id });
   return c.json({ batch: batchView(await getBatch(c.env.DB, c.get('identity').user_id, batch.id)), library: next, already_applied: false });

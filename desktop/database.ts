@@ -20,9 +20,10 @@ export class LocalDatabase {
       const hasErrorColumn = file.startsWith('0003') && this.raw.prepare('PRAGMA table_info(user_import_batches)').all().some(row => row.name === 'error_message');
       const hasCloudSync = file.startsWith('0004') && this.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('cloud_sync_state','cloud_sync_codes','cloud_sync_devices','cloud_sync_receipts','cloud_sync_new_user','cloud_sync_credentials_changed')").get()?.n === 6;
       const hasJournal = file.startsWith('0005') && this.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('library_changes','library_change_floor','library_change_relations_DELETE')").get()?.n === 3;
+      const hasRecordMetadata = file.startsWith('0006') && this.raw.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('library_entity_counts','count_relations_DELETE','import_summary_UPDATE')").get()?.n === 3;
       this.raw.exec('BEGIN IMMEDIATE');
       try {
-        if (!present && !hasErrorColumn && !hasCloudSync && !hasJournal) this.raw.exec(readFileSync(join(migrations, file), 'utf8'));
+        if (!present && !hasErrorColumn && !hasCloudSync && !hasJournal && !hasRecordMetadata) this.raw.exec(readFileSync(join(migrations, file), 'utf8'));
         this.raw.prepare('INSERT INTO desktop_migrations VALUES (?)').run(file);
         this.raw.exec('COMMIT');
       } catch (error) { this.raw.exec('ROLLBACK'); throw error; }

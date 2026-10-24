@@ -28,6 +28,7 @@ import { editableOffline, runtimeMode } from './local-replica';
 import { SyncBadge } from './SyncView';
 import { applyLibraryDelta } from '../shared/apply-delta';
 import type { CloudDelta } from '../shared/cloud-sync';
+import { mutateLibrary, refreshChangedRecords } from './record-mutation-actions';
 
 type Page = 'home' | 'projects' | 'project' | 'graph' | 'practice' | 'manage';
 type Editor = { kind: Kind | 'appearance' | 'link' | 'followup'; value: Entity; expectedRevision: number };
@@ -162,7 +163,7 @@ export default function App() {
     } catch (error) {
       if (sequence !== refreshSequence.current) return;
       if (error instanceof ApiError && error.status === 409) {
-        try { const next = await loadLibrary(); if (sequence === refreshSequence.current) setLibrary(next); } catch { /* Keep the confirmed order if reloading is unavailable. */ }
+        try { const next = await refreshChangedRecords(library); if (sequence === refreshSequence.current) setLibrary(next); } catch { /* Keep the confirmed order if reloading is unavailable. */ }
       }
       await handleError(error instanceof ApiError ? error : new Error('项目顺序未确认保存，请联网后重试'));
     } finally {
@@ -202,7 +203,7 @@ export default function App() {
         setPendingDeletion(null); notify('该项目的本机离线内容已移除');
       } else {
         const endpoint = target.kind === 'card' ? 'cards' : target.kind === 'project' ? 'projects' : 'relations';
-        const next = await api<Library>(`/${endpoint}/${target.id}`, { method: 'DELETE', body: JSON.stringify({ expected_revision: target.expectedRevision }) });
+        const next = await mutateLibrary(library!,`/${endpoint}/${target.id}`, { method: 'DELETE', body: JSON.stringify({ expected_revision: target.expectedRevision }) });
         if (sequence !== refreshSequence.current) return;
         setLibrary(next); setPendingDeletion(null);
         if (detailId && !next.cards.some(card => card.id === detailId)) setDetailId(undefined);
@@ -221,7 +222,7 @@ export default function App() {
       if (sequence !== refreshSequence.current) return;
       if (error instanceof ApiError && error.status === 409) {
         try {
-          const next = await loadLibrary(); if (sequence !== refreshSequence.current) return; setLibrary(next);
+          const next = await refreshChangedRecords(library); if (sequence !== refreshSequence.current) return; setLibrary(next);
           setPendingDeletion(current => current ? { ...current, expectedRevision: next.revision } : null);
           setDeleteError('题库刚有更新，已刷新。请重新核对项目或题目及影响范围，再次确认删除。');
         } catch (refreshError) { setDeleteError('刷新题库失败，请取消后刷新页面再试。'); await handleError(refreshError); }
@@ -237,7 +238,7 @@ export default function App() {
   }
   async function exportProject(id: string) {
     await action(async () => {
-      const current = await loadLibrary(), bundle = projectExport(current, id);
+      const bundle = await api<ReturnType<typeof projectExport>>(`/projects/${id}/export`);
       const name = bundle.projects[0].name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
       downloadFile(`${name}-题库.json`, JSON.stringify(bundle, null, 2), 'application/json');
       notify('项目已导出，包含归档题目，可在导入问题页面上传');
@@ -257,7 +258,9 @@ export default function App() {
   async function copy(text: string) { try { await navigator.clipboard.writeText(text); notify('定位信息已复制'); } catch { notify('复制暂不可用，请长按下方定位信息复制'); } }
   const stateButtonsDisabled = offline || operationBusy || loading || cardSaves.retrying;
   const buttonsDisabled = stateButtonsDisabled || cardSaves.saving;
-  const formProps = library && editor ? { library, expectedRevision: editor.expectedRevision, onSaved: (next: Library) => { setLibrary(next); setDirty(false); dirtyRef.current = false; setDiscardAction(null); setEditor(null); notify('已保存'); }, onDirty: setDirty, onError: (error: unknown) => { void handleError(error); } } : null;
+  const responseSequence=refreshSequence.current;
+  const acceptLibrary=(next:Library)=>{if(responseSequence===refreshSequence.current)setLibrary(current=>current&&current.revision>next.revision?current:next);};
+  const formProps = library && editor ? { library, expectedRevision: editor.expectedRevision, onSaved: (next: Library) => { if(responseSequence!==refreshSequence.current)return;acceptLibrary(next); setDirty(false); dirtyRef.current = false; setDiscardAction(null); setEditor(null); notify('已保存'); }, onDirty: setDirty, onError: (error: unknown) => { void handleError(error); } } : null;
   const menuCard = contextMenu?.kind === 'card' ? library?.cards.find(card => card.id === contextMenu.id) : undefined;
   const menuProject = contextMenu?.kind === 'project' ? library?.projects.find(project => project.id === contextMenu.id) : undefined;
   const menuItems: ContextMenuItem[] = menuCard ? [
@@ -330,7 +333,7 @@ export default function App() {
           {page === 'practice' && <PracticeView key={practiceKey} library={library} initialProjectId={practiceEntryId} offline={offline} busy={operationBusy || cardSaves.retrying} editDisabled={buttonsDisabled} saveStatus={cardSaves.statusById} onMark={(card, mastery) => updateCard(card, { mastery })} onEdit={card => openEditor('cards', card)} onDelete={card => requestDeletion('card', card.id, card.question || card.title)} onScopeChange={setProjectId} onOpenProject={openProject} />}
           {page === 'manage' && <>
             <div className="page-heading"><div><h1>维护与备份</h1><p>填写问答、导入题库，或保存和恢复备份。</p></div></div><div className="manage-tabs">{[['imports', '导入问题'], ['backup', '备份与恢复'], ['topics', '知识大类'], ['offline', '离线内容'], ['help', '使用说明']].map(([id, name]) => <button key={id} className={manageTab === id ? 'selected' : ''} onClick={() => setManageTab(id)}>{name}</button>)}</div>
-            {(manageTab === 'imports' || manageTab === 'backup') && <ImportView library={library} view={manageTab === 'backup' ? 'backup' : 'import'} offline={offline} pendingStateSave={cardSaves.saving} onLibrary={setLibrary} onError={error => { void handleError(error); }} notify={notify} />}
+            {(manageTab === 'imports' || manageTab === 'backup') && <ImportView key={account?.user_id} library={library} view={manageTab === 'backup' ? 'backup' : 'import'} offline={offline} pendingStateSave={cardSaves.saving} onLibrary={acceptLibrary} onError={error => { void handleError(error); }} notify={notify} />}
             {manageTab === 'topics' && <section className="panel"><div className="section-title"><h3>知识大类</h3><button className="primary" disabled={buttonsDisabled} onClick={() => openEditor('topics', blankRecord('topics'))}><Plus size={16} />新增大类</button></div><p className="muted">只维护跨项目共用的大类，每张卡片选择一个。</p><div className="record-list">{knowledgeCategories(library.topics).map(t => <div key={t.id}><span>{t.name}<small>{activeCards.filter(c => c.topic_ids.includes(t.id)).length} 个相关问题</small></span><div className="button-row"><button className="text-button" onClick={() => { setTopic(t.id); setSearch(''); navigate('project', undefined); }}>查看问题</button><button className="icon-button" disabled={buttonsDisabled} aria-label={`编辑知识大类 ${t.name}`} onClick={() => openEditor('topics', t)}><Edit3 size={16} /></button></div></div>)}</div>{!knowledgeCategories(library.topics).length && <p className="muted">先添加大类，再在卡片中选择。</p>}</section>}
             {manageTab === 'offline' && <section className="panel"><div className="section-title"><h3>下载到这台设备</h3><WifiOff size={20} /></div><p className="muted">下载项目后，可以断网阅读、翻卡和查看该项目图谱。每台设备的离线内容单独保存。</p><div className="record-list">{library.projects.map(p => { const saved = downloads.find(d => d.id === p.id && d.owner === owner); return <div key={p.id}><span>{p.name}<small>{saved ? `已下载 ${saved.snapshot.cards.length} 张 · ${dateLabel(saved.downloaded_at)}` : '尚未下载'}</small></span><div className="button-row"><button className="secondary" disabled={buttonsDisabled} onClick={() => void downloadProject(p.id)}><ArrowDownToLine size={15} />{saved ? '更新' : '下载'}</button>{saved && <button className="text-button" disabled={operationBusy} onClick={() => requestDeletion('download', p.id, p.name)}>移除</button>}</div></div>; })}</div><p className="microcopy">退出登录会清除本机已下载的题库。</p></section>}
             {manageTab === 'help' && <section className="panel help-panel"><h3>iPhone 上随时翻一张</h3><ol><li>在 Safari 打开题库网址，使用邮箱账号和密码登录。</li><li>点击分享，选择“添加到主屏幕”，之后从桌面图标打开。</li><li>进入项目，点击“下载项目”；看到下载成功后即可离线复习。</li></ol><h3>修改与来源</h3><p>点开卡片后可编辑复习提纲和完整答案。面试后使用“记录被问来源”，保存公司、日期、岗位和当时的问法。完整答案默认收起，点击后可展开。需要移除题目时，点击卡片中的“删除知识卡”，再在弹窗中确认。</p><h3>让 AI 帮你整理</h3><p>让 AI 按 JSON v1 格式整理问答，保留问题 ID、原始问法和依据。上传文件或通过已连接的 AI 提交后，会直接保存到题库；到“导入问题”的记录中查看结果。</p><p className="muted">AI 接口：<code>/api/v1/agent/library</code>（读取）、<code>/api/v1/agent/schema</code>（格式）、<code>/api/v1/agent/imports/submit</code>（直接导入）。服务凭证在 Cloudflare Access 中管理。</p><h3>备份与设置</h3><p>“备份与恢复”单独提供备份下载和恢复预览。点击左下角退出按钮左边的齿轮，可打开账户与密码设置；管理员还可管理用户。</p><h3>你的登录邮箱</h3><p>{owner}</p></section>}

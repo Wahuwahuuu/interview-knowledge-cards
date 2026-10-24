@@ -13,6 +13,7 @@ import { emptyLibrary,importSchema,prepareImport,type Library } from '../shared/
 import { changesBetween } from '../shared/sync';
 import { applyLibraryDelta } from '../shared/apply-delta';
 import { cardEditRequest } from '../shared/card-edit';
+import { planRecordMerge } from '../worker/record-mutations';
 
 const migrations=resolve('migrations'),site='https://delta.example.test';
 const sample=()=>prepareImport(emptyLibrary(),importSchema.parse({schema_version:1,projects:[{id:'p',name:'示例题库'}],cards:[{id:'q',project_id:'p',title:'事务',question:'事务是什么？',summary_md:'初始口述',answer_md:'初始讲解'}]}));
@@ -78,6 +79,11 @@ describe('网站与客户端只同步变化记录',()=>{
     const code=(await (await request('device-sync/code',{})).json() as any).code;await server.cloud.connect('admin',{site,code,name:'示例电脑'});await server.cloud.enable('admin');await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).incremental).toBe(true);remoteSQL=trace(remote);localSQL=trace(server.db);traffic.length=0;
   });
   afterEach(async()=>{await server.close();remote.close();});
+  it('批量本机修改用分组回执上传，丢失回应后复用原结果且数据库调用不逐题增长',async()=>{
+    const plan=await planRecordMerge(server.db.asD1(),'admin',importSchema.parse({schema_version:1,cards:Array.from({length:300},(_,index)=>({id:'batch-'+index,project_id:'p',title:'批量题 '+index,question:'具体问题？',summary_md:'短答案'}))}));await commitIncremental(server.db.asD1(),'admin',plan.revision,plan.changes);
+    remoteSQL.length=0;traffic.length=0;loseAck=true;await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).pending).toBe(true);expect(remoteSQL.length).toBeLessThan(45);expect(fullReads(remoteSQL)).toEqual([]);
+    const count=remote.raw.prepare('SELECT count(*) n FROM user_card_revisions').get()!.n;await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).pending).toBe(false);expect(remote.raw.prepare('SELECT count(*) n FROM user_card_revisions').get()!.n).toBe(count);expect((await readLibrary(remote.asD1(),'admin')).cards).toHaveLength(301);expect(traffic.some(row=>row.path.endsWith('/snapshot'))).toBe(false);
+  });
   it('网页按单卡保存后自动传到本机，本机继续修改可回到网站，保留原连接',async()=>{
     const base=await readLibrary(remote.asD1(),'admin'),card=base.cards[0];
     const response=await app.fetch(new Request(site+'/api/v1/cards/q',{method:'PATCH',headers:{Origin:site,Cookie:'__Host-interview_session='+cookie,'Content-Type':'application/json'},body:JSON.stringify(cardEditRequest(card,{...card,summary_md:'网页精简口述',answer_md:'网页对应讲解'},base.revision))}),env);

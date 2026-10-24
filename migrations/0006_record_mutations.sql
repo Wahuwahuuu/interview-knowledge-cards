@@ -1,0 +1,28 @@
+-- Account counters and import-list metadata are maintained with the affected writes.
+CREATE TABLE library_entity_counts(user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,n INTEGER NOT NULL CHECK(n>=0),PRIMARY KEY(user_id,kind));
+INSERT INTO library_entity_counts SELECT user_id,'projects',count(*) FROM user_projects GROUP BY user_id;
+CREATE TRIGGER count_projects_INSERT AFTER INSERT ON user_projects BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'projects',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_projects_DELETE AFTER DELETE ON user_projects BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='projects'; END;
+INSERT INTO library_entity_counts SELECT user_id,'topics',count(*) FROM user_topics GROUP BY user_id;
+CREATE TRIGGER count_topics_INSERT AFTER INSERT ON user_topics BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'topics',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_topics_DELETE AFTER DELETE ON user_topics BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='topics'; END;
+INSERT INTO library_entity_counts SELECT user_id,'sources',count(*) FROM user_sources GROUP BY user_id;
+CREATE TRIGGER count_sources_INSERT AFTER INSERT ON user_sources BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'sources',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_sources_DELETE AFTER DELETE ON user_sources BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='sources'; END;
+INSERT INTO library_entity_counts SELECT user_id,'cards',count(*) FROM user_cards GROUP BY user_id;
+CREATE TRIGGER count_cards_INSERT AFTER INSERT ON user_cards BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'cards',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_cards_DELETE AFTER DELETE ON user_cards BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='cards'; END;
+INSERT INTO library_entity_counts SELECT user_id,'occurrences',count(*) FROM user_occurrences GROUP BY user_id;
+CREATE TRIGGER count_occurrences_INSERT AFTER INSERT ON user_occurrences BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'occurrences',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_occurrences_DELETE AFTER DELETE ON user_occurrences BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='occurrences'; END;
+INSERT INTO library_entity_counts SELECT user_id,'relations',count(*) FROM user_relations GROUP BY user_id;
+CREATE TRIGGER count_relations_INSERT AFTER INSERT ON user_relations BEGIN INSERT INTO library_entity_counts VALUES(NEW.user_id,'relations',1) ON CONFLICT(user_id,kind) DO UPDATE SET n=n+1; END;
+CREATE TRIGGER count_relations_DELETE AFTER DELETE ON user_relations BEGIN UPDATE library_entity_counts SET n=n-1 WHERE user_id=OLD.user_id AND kind='relations'; END;
+ALTER TABLE user_import_batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'merge';
+ALTER TABLE user_import_batches ADD COLUMN label TEXT NOT NULL DEFAULT '';
+ALTER TABLE user_import_batches ADD COLUMN question_count INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX user_import_created ON user_import_batches(user_id,created_at DESC);
+CREATE INDEX user_projects_sort ON user_projects(user_id,json_extract(payload,'$.sort_order'));
+UPDATE user_import_batches SET mode=coalesce(json_extract(payload,'$.mode'),'merge'),label=coalesce(json_extract(payload,'$.projects[0].name'),nullif(trim(coalesce(json_extract(payload,'$.cards[0].title'),'')||CASE WHEN json_extract(payload,'$.cards[1].title') IS NOT NULL THEN '、'||json_extract(payload,'$.cards[1].title') ELSE '' END),''),'问答与来源导入'),question_count=coalesce(json_array_length(payload,'$.cards'),0);
+CREATE TRIGGER import_summary_INSERT AFTER INSERT ON user_import_batches BEGIN UPDATE user_import_batches SET mode=coalesce(json_extract(payload,'$.mode'),'merge'),label=coalesce(json_extract(payload,'$.projects[0].name'),nullif(trim(coalesce(json_extract(payload,'$.cards[0].title'),'')||CASE WHEN json_extract(payload,'$.cards[1].title') IS NOT NULL THEN '、'||json_extract(payload,'$.cards[1].title') ELSE '' END),''),'问答与来源导入'),question_count=coalesce(json_array_length(payload,'$.cards'),0) WHERE user_id=NEW.user_id AND id=NEW.id; END;
+CREATE TRIGGER import_summary_UPDATE AFTER UPDATE OF payload ON user_import_batches BEGIN UPDATE user_import_batches SET mode=coalesce(json_extract(payload,'$.mode'),'merge'),label=coalesce(json_extract(payload,'$.projects[0].name'),nullif(trim(coalesce(json_extract(payload,'$.cards[0].title'),'')||CASE WHEN json_extract(payload,'$.cards[1].title') IS NOT NULL THEN '、'||json_extract(payload,'$.cards[1].title') ELSE '' END),''),'问答与来源导入'),question_count=coalesce(json_array_length(payload,'$.cards'),0) WHERE user_id=NEW.user_id AND id=NEW.id; END;

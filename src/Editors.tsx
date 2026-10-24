@@ -5,6 +5,7 @@ import { api, newId } from './api';
 import { canLinkFollowup, orderedFollowups } from '../shared/followups';
 import { cardCategories, knowledgeCategories, withCategory } from '../shared/topic-categories';
 import { saveCard } from './card-edit-actions';
+import { mutateLibrary } from './record-mutation-actions';
 
 export function Modal({ title, children, onClose, wide = false, role = 'dialog', closeDisabled = false, initialFocusRef, descriptionId }: { title: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; role?: 'dialog' | 'alertdialog'; closeDisabled?: boolean; initialFocusRef?: RefObject<HTMLElement | null>; descriptionId?: string }) {
   const dialog = useRef<HTMLDivElement>(null), close = useRef(onClose); close.current = onClose;
@@ -37,7 +38,7 @@ function useSubmit(props: FormProps) {
     catch (error) { setError(error instanceof Error ? error.message : '保存失败'); props.onError(error); }
     finally { setBusy(false); }
   };
-  return { busy, error, submit: (changes: Record<string, unknown>) => run(() => api<Library>('/changes', { method: 'POST', body: JSON.stringify({ expected_revision: props.expectedRevision, changes: { schema_version: 1, ...changes } }) })), save: run };
+  return { busy, error, submit: (changes: Record<string, unknown>) => run(() => mutateLibrary(props.library,'/changes', { method: 'POST', body: JSON.stringify({ expected_revision: props.expectedRevision, changes: { schema_version: 1, ...changes } }) })), save: run };
 }
 export function CardForm(props: FormProps & { initial: Card }) {
   const [value, setValue] = useState(props.initial);

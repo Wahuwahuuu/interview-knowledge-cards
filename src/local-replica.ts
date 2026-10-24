@@ -1,7 +1,7 @@
 import type { Account } from '../shared/accounts';
 import { AppError, canonical, diffLibraries, graphElements, importSchema, kinds, librarySchema, prepareImport, projectSnapshot, schemas, validateLibrary, type Entity, type ImportBatch, type ImportEnvelope, type Kind, type Library } from '../shared/model';
 import { removeCard } from '../shared/card-actions';
-import { removeProject } from '../shared/project-actions';
+import { projectExport, removeProject } from '../shared/project-actions';
 import { applyProjectOrder, projectOrderRequestSchema } from '../shared/project-order';
 import { cardState, cardStateRequestSchema } from '../shared/card-state';
 import { cardEditRelation, cardEditRequestSchema, cardEditValue } from '../shared/card-edit';
@@ -96,6 +96,8 @@ export async function importReplica(text: string) {
 
 /** All UI edits use the same adapter, so editors/imports/flags remain available offline. */
 export async function replicaApi(path: string, init: RequestInit): Promise<unknown> {
+  const requestPath=path;
+  path=path.split('?')[0];
   return exclusive(async () => {
     if (!cached) throw new AppError(401, '请先与电脑配对', 'PAIRING_REQUIRED');
     const current = cached, method = init.method ?? 'GET', input = init.body ? JSON.parse(String(init.body)) : {};
@@ -109,8 +111,9 @@ export async function replicaApi(path: string, init: RequestInit): Promise<unkno
       if (path === '/auth/status') return { registration_open: false, admin_ready: true };
       const record = path.match(/^\/imports\/([^/]+)$/); if (record) { const batch = replicaImports(current).find(batch => batch.id === decodeURIComponent(record[1])); if (!batch) throw new AppError(404, '导入记录不存在'); return batch; }
       const snapshot = path.match(/^\/projects\/([^/]+)\/snapshot$/); if (snapshot) return { owner: current.account.email, downloaded_at: now, snapshot: projectSnapshot(base, snapshot[1]) };
+      const projectBundle=path.match(/^\/projects\/([^/]+)\/export$/);if(projectBundle)return projectExport(base,projectBundle[1]);
       const history = path.match(/^\/cards\/([^/]+)\/history$/); if (history) return base.revisions.filter(entry => entry.card_id === history[1]);
-      if (path.startsWith('/graph')) return { elements: graphElements(base, new URL(path, location.origin).searchParams.get('project_id') ?? undefined) };
+      if (path.startsWith('/graph')) return { elements: graphElements(base, new URL(requestPath, location.origin).searchParams.get('project_id') ?? undefined) };
       const kind = path.slice(1) as Kind; if (kinds.includes(kind)) return base[kind];
       throw new AppError(503, '账户管理请在电脑客户端中操作', 'DESKTOP_REQUIRED');
     }

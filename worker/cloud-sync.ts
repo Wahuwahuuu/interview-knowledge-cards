@@ -5,7 +5,7 @@ import type { CloudAccount, CloudLinkReply, CloudSnapshot, CloudPushResult } fro
 import { tokenHash, type Env, type Identity } from './auth';
 import { readLibrary } from './store';
 import { journalHead, readJournal, readRecords } from './change-journal';
-import { commitIncremental, planIncremental } from './incremental-store';
+import { commitIncremental, jsonChunks, planIncremental } from './incremental-store';
 import { recordKey, type SyncRecord } from '../shared/record-sync';
 
 const prefix = '/api/v1/device-sync/';
@@ -109,7 +109,7 @@ export async function handleCloudSync(request: Request, env: Env, identity?: Ide
       await commitIncremental(env.DB,user,meta.revision,merged.changes,[
         env.DB.prepare("INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN (SELECT epoch FROM cloud_sync_state WHERE user_id=?)=? AND EXISTS(SELECT 1 FROM cloud_sync_devices d JOIN users u ON u.id=d.user_id WHERE d.id=? AND d.user_id=? AND u.status='active' AND d.expires_at>?) THEN 1 ELSE 0 END)").bind(user,guard,user,operation.epoch,linked.id,user,new Date().toISOString()),
         env.DB.prepare('INSERT INTO cloud_sync_receipts(user_id,device_id,op_id,digest,result) VALUES (?,?,?,?,?)').bind(user,linked.id,operation.id,digest,JSON.stringify({...result,records:[],recordsStored:true})),
-        ...result.records.map((row,index)=>env.DB.prepare('INSERT INTO cloud_sync_receipt_records(user_id,device_id,op_id,kind,id,revision,payload,position) VALUES (?,?,?,?,?,?,?,?)').bind(user,linked.id,operation.id,row.kind,row.id,row.revision,row.value?JSON.stringify(row.value):null,index)),
+        ...jsonChunks(result.records.map((row,index)=>({...row,position:index}))).map(chunk=>env.DB.prepare("INSERT INTO cloud_sync_receipt_records(user_id,device_id,op_id,kind,id,revision,payload,position) SELECT ?,?,?,json_extract(value,'$.kind'),json_extract(value,'$.id'),json_extract(value,'$.revision'),CASE WHEN json_type(value,'$.value')='null' THEN NULL ELSE json_extract(value,'$.value') END,json_extract(value,'$.position') FROM json_each(?)").bind(user,linked.id,operation.id,chunk)),
         env.DB.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(user,guard),
       ]);
     }

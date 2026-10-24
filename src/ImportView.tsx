@@ -8,6 +8,7 @@ import { ImportPreview } from './ImportPreview';
 import { ManualImportForm } from './ManualImportForm';
 import { applyImportBatch, cancelImportBatch, createImportSubmitter, refreshImportBatch, type ImportResult } from './import-actions';
 import { ConfirmationDialog } from './ConfirmationDialog';
+import { applyMutationReply, deltaPath, refreshChangedRecords } from './record-mutation-actions';
 
 function changeLabel(changes: Change[]) { const summary = summarizeChanges(changes); return summary.questions ? `${summary.questions} 道题` : '题库资料更新'; }
 function batchLabel(batch: ImportBatch) {
@@ -43,12 +44,14 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     if (offline) return;
     try {
       const next = await api<ImportBatch[]>('/imports');
+      const expanded=selected&&next.find(batch=>batch.id===selected.id);
+      if(expanded&&selected.preview_loaded!==false&&(expanded.status!==selected.status||expanded.base_revision!==selected.base_revision))next[next.indexOf(expanded)]=await api<ImportBatch>(`/imports/${encodeURIComponent(expanded.id)}`);
       setBatches(next);
       setSelected(current => {
         if (!current) return current;
         const latest = next.find(batch => batch.id === current.id);
         if (!latest || ['applied', 'cancelled'].includes(current.status) && !['applied', 'cancelled'].includes(latest.status) || latest.status === current.status && latest.base_revision < current.base_revision) return current;
-        return latest;
+        return current.preview_loaded!==false&&latest.status===current.status&&latest.base_revision===current.base_revision?{...latest,preview:current.preview,preview_loaded:true}:latest;
       });
     } catch (e) { onError(e); }
   }
@@ -83,7 +86,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     const submittedVersion = manualEditVersion.current;
     setSelected(null);
     try {
-      const result = await submitImport.current(envelope);
+      const result = await submitImport.current(envelope,library);
       onLibrary(result.library); showPreview(result.batch);
       notify(result.already_applied ? '这批内容已导入，记录已更新' : '导入成功，题库已更新');
       if (manual && submittedVersion === manualEditVersion.current) { setManualResetKey(key => key + 1); setManualDirty(false); }
@@ -93,8 +96,8 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     if (busy || offline) return;
     await run(async () => {
       try {
-        const result = await api<ImportResult>(`/imports/${encodeURIComponent(batch.id)}/retry`, { method: 'POST', body: '{}' });
-        onLibrary(result.library); showPreview(result.batch); notify('导入成功，题库已更新');
+        const result = await api<ImportResult>(deltaPath(`/imports/${encodeURIComponent(batch.id)}/retry`,library.revision), { method: 'POST', body: '{}' });
+        onLibrary(await applyMutationReply(library,result)); showPreview(result.batch); notify('导入成功，题库已更新');
       } finally { await refresh(); }
     });
   }
@@ -126,7 +129,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
         setCancellationBatch(null); finished = true;
         if (result.status === 'applied') {
           notify('这条记录已完成导入，无法取消；已更新记录状态');
-          onLibrary(await loadLibrary());
+          onLibrary(result.mode==='merge'?await refreshChangedRecords(library):await loadLibrary());
         } else {
           notify(result.mode === 'restore' ? '这次恢复已取消，题库保持原样' : '这次导入已取消，题库保持原样');
         }
@@ -139,7 +142,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
   async function applyBatch(batch: ImportBatch) {
     if (busy || offline) return;
     await run(async () => {
-      const result = await applyImportBatch(batch);
+      const result = await applyImportBatch(batch,library);
       setConfirmationBatch(null); showPreview(result.batch);
       if (result.kind === 'refreshed') {
         const message = '题库刚有更新，已重新生成预览，本次尚未导入。请核对后再次点击确认。';
@@ -160,7 +163,7 @@ export function ImportView({ library, view, offline, pendingStateSave = false, o
     <div className="section-title"><h4>{selectedHere.mode === 'restore' ? '完整备份恢复预览' : '导入内容'}</h4><div className="button-row"><span className="muted">{statusLabel(selectedHere)}</span><button className="text-button" disabled={busy} onClick={closePreview}><ChevronUp size={16} />收起内容</button></div></div>
     {selectedHere.mode === 'restore' && selectedHere.status === 'pending' && <div className="notice warning">确认恢复后，将用备份替换当前账号的整个题库，包括答案历史。请核对所有新增、修改和移除内容。</div>}
     {selectedHere.error && <div className="notice error" role="alert">{selectedHere.error}</div>}
-    {selectedHere.preview.length > 0 ? <ImportPreview key={selectedHere.id} changes={selectedHere.preview} mode={selectedHere.mode} review={selectedHere.mode === 'restore' && selectedHere.status === 'pending'} /> : <p className="muted">{selectedHere.status === 'failed' ? '本次未写入题库。请根据错误提示修改内容后重新提交，或在问题解决后重试。' : '本批内容与题库一致，没有新增或修改。'}</p>}
+    {selectedHere.preview_loaded===false?<p className="muted">正在读取导入内容…</p>:selectedHere.preview.length > 0 ? <ImportPreview key={selectedHere.id} changes={selectedHere.preview} mode={selectedHere.mode} review={selectedHere.mode === 'restore' && selectedHere.status === 'pending'} /> : <p className="muted">{selectedHere.status === 'failed' ? '本次未写入题库。请根据错误提示修改内容后重新提交，或在问题解决后重试。' : '本批内容与题库一致，没有新增或修改。'}</p>}
     {notice && <div className="notice warning import-action-message" role="status">{notice}</div>}
     {error && <div className="notice error import-action-message" role="alert">{error}</div>}
     {selectedHere.mode === 'restore' && <div className="split-actions"><span className="microcopy">核对后确认，确认前不会修改正式题库。</span><div className="button-row">

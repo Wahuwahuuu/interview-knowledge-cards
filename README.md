@@ -8,6 +8,8 @@ Windows 客户端使用本地 SQLite，2.1.0 起可与网站自动双向同步�
 
 **2.2.1 优化卡片保存**：手机网页与 Windows 客户端编辑、新增知识卡时，只提交修改字段，服务端只读取当前卡片和必要关联，返回当前卡片后在页面中替换，不再重新读取和下载整个题库。版本冲突保护、原始来源、历史和自动同步保持；配对手机的离线编辑也兼容这一入口。
 
+**2.3.0 优化导入与资料管理**：普通导入、来源和被问记录、问题关系及项目／分类维护都按涉及的记录校验保存，新版页面只补回变化记录。批量导入与同步回执分组写入，容量检查使用事务计数；导入列表只读摘要，展开单条再读内容。删除卡片和项目只加载其依赖，保留删除前确认及追问重挂；项目导出只读所选项目，图谱只取标签和连接。升级不改变题库与同步授权。
+
 [![CI](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml/badge.svg)](https://github.com/Wahuwahuuu/interview-knowledge-cards/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/Wahuwahuuu/interview-knowledge-cards)](https://github.com/Wahuwahuuu/interview-knowledge-cards/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)

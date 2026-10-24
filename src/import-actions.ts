@@ -1,5 +1,6 @@
 import { canonical, type ImportBatch, type ImportEnvelope, type Library } from '../shared/model';
 import { ApiError, api, loadLibrary } from './api';
+import { applyMutationReply, deltaPath, refreshChangedRecords } from './record-mutation-actions';
 
 export type ImportResult = { batch: ImportBatch; library: Library; already_applied: boolean };
 
@@ -7,11 +8,12 @@ export type ImportResult = { batch: ImportBatch; library: Library; already_appli
 // content must retrieve the committed result instead of creating a second batch.
 export function createImportSubmitter() {
   const ids = new Map<string, string>();
-  return async (envelope: ImportEnvelope): Promise<ImportResult> => {
+  return async (envelope: ImportEnvelope,library?:Library): Promise<ImportResult> => {
     const fingerprint = canonical(envelope);
     const batchId = envelope.batch_id ?? ids.get(fingerprint) ?? crypto.randomUUID();
     ids.set(fingerprint, batchId);
-    return api<ImportResult>('/imports/submit', { method: 'POST', body: JSON.stringify({ ...envelope, batch_id: batchId }) });
+    const result=await api<ImportResult>(library?deltaPath('/imports/submit',library.revision):'/imports/submit', { method: 'POST', body: JSON.stringify({ ...envelope, batch_id: batchId }) });
+    return library?{...result,library:await applyMutationReply(library,result)}:result;
   };
 }
 
@@ -36,16 +38,17 @@ export async function cancelImportBatch(batch: ImportBatch): Promise<ImportBatch
 
 type ApplyResult = { kind: 'applied'; batch: ImportBatch; library: Library } | { kind: 'refreshed'; batch: ImportBatch } | { kind: 'cancelled'; batch: ImportBatch };
 
-export async function applyImportBatch(batch: ImportBatch): Promise<ApplyResult> {
+export async function applyImportBatch(batch: ImportBatch,library?:Library): Promise<ApplyResult> {
   try {
-    const result = await api<{ batch: ImportBatch; library: Library }>(`/imports/${encodeURIComponent(batch.id)}/apply`, {
+    const path=`/imports/${encodeURIComponent(batch.id)}/apply`,incremental=library&&batch.mode==='merge';
+    const result = await api<{ batch: ImportBatch; library: Library }>(incremental?deltaPath(path,library.revision):path, {
       method: 'POST', body: JSON.stringify({ expected_revision: batch.base_revision }),
     });
-    return { kind: 'applied', batch: result.batch, library: result.library };
+    return { kind: 'applied', batch: result.batch, library: incremental?await applyMutationReply(library,result):result.library };
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 409 || !['REVISION_CONFLICT', 'IMPORT_CANCELLED'].includes(error.code)) throw error;
     const refreshed = error.code === 'IMPORT_CANCELLED' ? await api<ImportBatch>(`/imports/${encodeURIComponent(batch.id)}`) : await refreshImportBatch(batch);
-    if (refreshed.status === 'applied') return { kind: 'applied', batch: refreshed, library: await loadLibrary() };
+    if (refreshed.status === 'applied') return { kind: 'applied', batch: refreshed, library: library&&batch.mode==='merge'?await refreshChangedRecords(library):await loadLibrary() };
     if (refreshed.status === 'cancelled') return { kind: 'cancelled', batch: refreshed };
     return { kind: 'refreshed', batch: refreshed };
   }

@@ -1,20 +1,26 @@
-import { AppError, canonical, diffLibraries, importSchema, kinds, librarySchema, prepareImport, sameContent, type Entity, type ImportBatch, type ImportEnvelope, type Library } from '../shared/model';
-import { commitLibrary, readLibrary } from './store';
+import { AppError, canonical, diffLibraries, importSchema, prepareImport, type ImportBatch, type ImportEnvelope } from '../shared/model';
+import { readLibrary } from './store';
+import { libraryRevision, planRecordMerge } from './record-mutations';
+import { commitIncremental } from './incremental-store';
 
 // Failed attempts stay retryable in storage; the API exposes their error as a failed result.
-export type BatchRow = { id: string; status: 'pending' | 'applied' | 'cancelled'; base_revision: number; created_at: string; applied_at: string | null; digest: string; payload: string; preview: string; error_message: string };
+export type BatchRow = { id: string; status: 'pending' | 'applied' | 'cancelled'; base_revision: number; created_at: string; applied_at: string | null; digest: string; payload: string; preview: string; error_message: string; mode?:'merge'|'restore';label?:string;question_count?:number };
 export function batchView(row: BatchRow): ImportBatch {
   // Stored payloads were validated on submission. Listing records should not
   // revalidate every answer in every historical batch.
-  const envelope = JSON.parse(row.payload) as ImportEnvelope;
-  const projects = envelope.projects ?? [], cards = envelope.cards ?? [];
+  const envelope = row.mode===undefined?JSON.parse(row.payload) as ImportEnvelope:undefined;
+  const projects = envelope?.projects ?? [], cards = envelope?.cards ?? [];
   return {
     id: row.id, status: row.status === 'pending' && row.error_message ? 'failed' : row.status,
     base_revision: row.base_revision, created_at: row.created_at, applied_at: row.applied_at,
-    mode: envelope.mode ?? 'merge', preview: JSON.parse(row.preview), error: row.error_message || undefined,
-    label: projects[0]?.name || cards.slice(0, 2).map(card => card.title).join('、') || '问答与来源导入',
-    question_count: cards.length,
+    mode: row.mode??envelope?.mode??'merge', preview: JSON.parse(row.preview), preview_loaded:true,error: row.error_message || undefined,
+    label: row.label??(projects[0]?.name || cards.slice(0, 2).map(card => card.title).join('、') || '问答与来源导入'),
+    question_count: row.question_count??cards.length,
   };
+}
+export async function listBatches(db:D1Database,userId:string){
+  const rows=await db.prepare('SELECT id,status,base_revision,created_at,applied_at,error_message,mode,label,question_count FROM user_import_batches WHERE user_id=? ORDER BY created_at DESC LIMIT 100').bind(userId).all<BatchRow>();
+  return rows.results.map(row=>({...row,status:row.status==='pending'&&row.error_message?'failed':row.status,error:row.error_message||undefined,error_message:undefined,preview:[],preview_loaded:false})) as ImportBatch[];
 }
 export async function getBatch(db: D1Database, userId: string, id: string) {
   const row = await db.prepare('SELECT * FROM user_import_batches WHERE user_id=? AND id=?').bind(userId, id).first<BatchRow>();
@@ -35,28 +41,15 @@ export async function draft(db: D1Database, userId: string, input: unknown) {
   const digest = await digestEnvelope(envelope), id = envelope.batch_id ?? crypto.randomUUID();
   const previous = await db.prepare('SELECT * FROM user_import_batches WHERE user_id=? AND id=?').bind(userId, id).first<BatchRow>();
   if (previous) { checkBatch(previous, digest); if (previous.status === 'applied') return batchView(previous); }
-  const library = await readLibrary(db, userId), target = prepareImport(library, envelope);
-  const preview = diffLibraries(library, target);
+  const plan=envelope.mode==='merge'?await planRecordMerge(db,userId,envelope):undefined;
+  const library=plan?undefined:await readLibrary(db,userId),revision=plan?.revision??library!.revision;
+  const preview=plan?.preview??diffLibraries(library!,prepareImport(library!,envelope));
   await db.prepare("INSERT INTO user_import_batches(user_id,id,status,base_revision,digest,created_at,payload,preview) VALUES (?,?,'pending',?,?,?,?,?) ON CONFLICT(user_id,id) DO UPDATE SET base_revision=excluded.base_revision,payload=excluded.payload,preview=excluded.preview,error_message='' WHERE user_import_batches.digest=excluded.digest AND user_import_batches.status='pending'")
-    .bind(userId, id, library.revision, digest, new Date().toISOString(), JSON.stringify({ ...envelope, batch_id: id }), JSON.stringify(preview)).run();
+    .bind(userId, id, revision, digest, new Date().toISOString(), JSON.stringify({ ...envelope, batch_id: id }), JSON.stringify(preview)).run();
   const saved = await getBatch(db, userId, id); checkBatch(saved, digest);
   return batchView(saved);
 }
 
-function checkExistingTargets(library: Library, envelope: ImportEnvelope) {
-  for (const kind of kinds) {
-    const existing = new Map<string, Entity>((library[kind] as Entity[]).map(value => [value.id, value]));
-    for (const value of envelope[kind]) {
-      const previous = existing.get(value.id);
-      if (!previous || sameContent(previous, value)) continue;
-      // An update must be based on the current complete object. Review flags also change
-      // updated_at without advancing the answer revision, so both tokens matter.
-      if (value.revision !== previous.revision || !value.updated_at || value.updated_at !== previous.updated_at) {
-        throw new AppError(409, '要更新的内容已有变化，或缺少当前版本信息。请读取最新题库后重新整理并提交。', 'IMPORT_TARGET_CONFLICT');
-      }
-    }
-  }
-}
 
 /** Merge and record the result in one request, with atomic commit and stable batch IDs. */
 export async function submitImport(db: D1Database, userId: string, input: unknown) {
@@ -66,26 +59,27 @@ export async function submitImport(db: D1Database, userId: string, input: unknow
   const previous = await db.prepare('SELECT * FROM user_import_batches WHERE user_id=? AND id=?').bind(userId, id).first<BatchRow>();
   if (previous) {
     checkBatch(previous, digest);
-    if (previous.status === 'applied') return { batch: batchView(previous), library: await readLibrary(db, userId), already_applied: true };
+    if (previous.status === 'applied') return { batch: batchView(previous), already_applied: true };
   }
-  let library = await readLibrary(db, userId);
+  const revision=await libraryRevision(db,userId);
   await db.prepare("INSERT INTO user_import_batches(user_id,id,status,base_revision,digest,created_at,payload,preview) VALUES (?,?,'pending',?,?,?,?, '[]') ON CONFLICT(user_id,id) DO NOTHING")
-    .bind(userId, id, library.revision, digest, new Date().toISOString(), JSON.stringify({ ...envelope, batch_id: id })).run();
+    .bind(userId, id, revision, digest, new Date().toISOString(), JSON.stringify({ ...envelope, batch_id: id })).run();
   checkBatch(await getBatch(db, userId, id), digest);
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
-      if (attempt) library = await readLibrary(db, userId);
       const current = await getBatch(db, userId, id); checkBatch(current, digest);
-      if (current.status === 'applied') return { batch: batchView(current), library: await readLibrary(db, userId), already_applied: true };
-      checkExistingTargets(library, envelope);
-      const target = prepareImport(library, envelope);
-      if (!librarySchema.safeParse(target).success) throw new AppError(422, '导入后的题库超过当前容量限制，请整理现有题库后重试', 'LIBRARY_LIMIT');
-      const preview = diffLibraries(library, target);
+      if (current.status === 'applied') return { batch: batchView(current), already_applied: true };
+      const plan=await planRecordMerge(db,userId,envelope,{strictTargets:true}),preview=plan.preview;
       await db.prepare("UPDATE user_import_batches SET base_revision=?,preview=?,error_message='' WHERE user_id=? AND id=? AND digest=? AND status='pending'")
-        .bind(library.revision, JSON.stringify(preview), userId, id, digest).run();
+        .bind(plan.revision, JSON.stringify(preview), userId, id, digest).run();
       try {
-        const next = await commitLibrary(db, userId, library, target, { batchId: id });
-        return { batch: batchView(await getBatch(db, userId, id)), library: next, already_applied: false };
+        const guard=crypto.randomUUID();
+        await commitIncremental(db,userId,plan.revision,plan.changes,[
+          db.prepare("INSERT INTO user_mutation_guard(user_id,id,ok) VALUES (?,?,CASE WHEN EXISTS(SELECT 1 FROM user_import_batches WHERE user_id=? AND id=? AND digest=? AND status='pending' AND base_revision=?) THEN 1 ELSE 0 END)").bind(userId,guard,userId,id,digest,plan.revision),
+          db.prepare("UPDATE user_import_batches SET status='applied',applied_at=?,error_message='' WHERE user_id=? AND id=?").bind(new Date().toISOString(),userId,id),
+          db.prepare('DELETE FROM user_mutation_guard WHERE user_id=? AND id=?').bind(userId,guard),
+        ]);
+        return { batch: batchView(await getBatch(db, userId, id)), already_applied: false };
       } catch (error) {
         if (error instanceof AppError && error.code === 'REVISION_CONFLICT' && attempt < 3) continue;
         throw error;
@@ -95,7 +89,7 @@ export async function submitImport(db: D1Database, userId: string, input: unknow
   } catch (error) {
     const latest = await getBatch(db, userId, id);
     // Another identical request may have completed while this request was waiting.
-    if (latest.status === 'applied') return { batch: batchView(latest), library: await readLibrary(db, userId), already_applied: true };
+    if (latest.status === 'applied') return { batch: batchView(latest), already_applied: true };
     const message = error instanceof AppError ? error.message : '导入未完成，请稍后重试；本次没有写入部分题目。';
     await db.prepare("UPDATE user_import_batches SET error_message=? WHERE user_id=? AND id=? AND digest=? AND status='pending'").bind(message, userId, id, digest).run();
     throw error;
