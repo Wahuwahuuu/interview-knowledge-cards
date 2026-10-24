@@ -14,6 +14,7 @@ import { changesBetween } from '../shared/sync';
 import { applyLibraryDelta } from '../shared/apply-delta';
 import { cardEditRequest } from '../shared/card-edit';
 import { planRecordMerge } from '../worker/record-mutations';
+import { deleteRecord } from '../worker/record-mutations';
 
 const migrations=resolve('migrations'),site='https://delta.example.test';
 const sample=()=>prepareImport(emptyLibrary(),importSchema.parse({schema_version:1,projects:[{id:'p',name:'示例题库'}],cards:[{id:'q',project_id:'p',title:'事务',question:'事务是什么？',summary_md:'初始口述',answer_md:'初始讲解'}]}));
@@ -68,17 +69,38 @@ describe('增量日志的事务边界',()=>{
 
 describe('网站与客户端只同步变化记录',()=>{
   let remote:LocalDatabase,server:Awaited<ReturnType<typeof startDesktopServer>>,env:Env,cookie='';
-  let offline=false,loseAck=false,beforePush:(()=>Promise<void>)|undefined;const traffic:{path:string;records:number}[]=[];let remoteSQL:string[]=[],localSQL:string[]=[];
+  let offline=false,loseAck=false,beforePush:(()=>Promise<void>)|undefined,afterPush:((reply:any)=>Promise<void>)|undefined;const traffic:{path:string;records:number}[]=[];let remoteSQL:string[]=[],localSQL:string[]=[];
   const request=async(path:string,value?:unknown)=>app.fetch(new Request(site+'/api/v1/'+path,{method:value===undefined?'GET':'POST',headers:{Origin:site,Cookie:'__Host-interview_session='+cookie,...(value===undefined?{}:{'Content-Type':'application/json'})},body:value===undefined?undefined:JSON.stringify(value)}),env);
   const readLocal=()=>readLibrary(server.db.asD1(),'admin');
   async function edit(where:'local'|'remote',patch:object){const db=where==='local'?server.db:remote,base=await readLibrary(db.asD1(),'admin');await commitLibrary(db.asD1(),'admin',base,prepareImport(base,importSchema.parse({schema_version:1,cards:[{...base.cards[0],...patch}]})));}
   beforeEach(async()=>{
-    offline=false;loseAck=false;beforePush=undefined;traffic.length=0;remote=new LocalDatabase(':memory:',migrations);cookie='c'.repeat(64);remote.raw.prepare("UPDATE users SET email='owner@example.test',password_hash='test-only' WHERE id='admin'").run();remote.raw.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(await tokenHash(cookie),'admin',new Date().toISOString(),new Date(Date.now()+3600000).toISOString());
+    offline=false;loseAck=false;beforePush=undefined;afterPush=undefined;traffic.length=0;remote=new LocalDatabase(':memory:',migrations);cookie='c'.repeat(64);remote.raw.prepare("UPDATE users SET email='owner@example.test',password_hash='test-only' WHERE id='admin'").run();remote.raw.prepare('INSERT INTO sessions VALUES (?,?,?,?)').run(await tokenHash(cookie),'admin',new Date().toISOString(),new Date(Date.now()+3600000).toISOString());
     env={DB:remote.asD1(),APP_ENV:'production',OWNER_EMAIL:'owner@example.test',ASSETS:{fetch:async()=>new Response('test')} as unknown as Fetcher};await commitLibrary(remote.asD1(),'admin',await readLibrary(remote.asD1(),'admin'),sample());
-    server=await startDesktopServer({dataDir:mkdtempSync(join(tmpdir(),'cards-delta-')),assets:resolve('dist'),migrations,port:0,lan:false,cloud:{autoStart:false,codec,fetch:async(input,init)=>{if(offline)throw new Error('offline');const path=new URL(String(input)).pathname;if(path.endsWith('/push')&&beforePush){const run=beforePush;beforePush=undefined;await run();}const response=await app.fetch(new Request(String(input),init),env);const body=await response.clone().json() as any;traffic.push({path,records:body.records?.length??0});if(path.endsWith('/push')&&response.ok&&loseAck){loseAck=false;throw new Error('lost ack');}return response;}}});await commitLibrary(server.db.asD1(),'admin',await readLocal(),sample());
+    server=await startDesktopServer({dataDir:mkdtempSync(join(tmpdir(),'cards-delta-')),assets:resolve('dist'),migrations,port:0,lan:false,cloud:{autoStart:false,codec,fetch:async(input,init)=>{if(offline)throw new Error('offline');const path=new URL(String(input)).pathname;if(path.endsWith('/push')&&beforePush){const run=beforePush;beforePush=undefined;await run();}const response=await app.fetch(new Request(String(input),init),env);const body=await response.clone().json() as any;traffic.push({path,records:body.records?.length??0});if(path.endsWith('/push')&&response.ok&&afterPush){const run=afterPush;afterPush=undefined;await run(body);}if(path.endsWith('/push')&&response.ok&&loseAck){loseAck=false;throw new Error('lost ack');}return response;}}});await commitLibrary(server.db.asD1(),'admin',await readLocal(),sample());
     const code=(await (await request('device-sync/code',{})).json() as any).code;await server.cloud.connect('admin',{site,code,name:'示例电脑'});await server.cloud.enable('admin');await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).incremental).toBe(true);remoteSQL=trace(remote);localSQL=trace(server.db);traffic.length=0;
   });
   afterEach(async()=>{await server.close();remote.close();});
+  async function deleteLocal(id:string){const revision=Number(server.db.raw.prepare("SELECT revision FROM user_library_meta WHERE user_id='admin'").get()!.revision);await deleteRecord(server.db.asD1(),'admin','cards',id,revision);}
+  it.each([false,true])('连续删主问题及追问后，未变化回执不复活旧关联；旧误报恢复=%s',async restoreOldConflict=>{
+    const base=await readLocal();await commitLibrary(server.db.asD1(),'admin',base,prepareImport(base,importSchema.parse({schema_version:1,cards:[{id:'a',project_id:'p',title:'追问 A',question:'A？'},{id:'b',project_id:'p',title:'追问 B',question:'B？'}],relations:[{id:'ra',from_card_id:'q',to_card_id:'a',kind:'followup'},{id:'rb',from_card_id:'q',to_card_id:'b',kind:'followup'}]})));await server.cloud.syncNow('admin');
+    await deleteLocal('q');let oldLink:any,ack:any;
+    afterPush=async reply=>{oldLink=JSON.parse(String(server.db.raw.prepare("SELECT value FROM desktop_settings WHERE key='website-sync:admin'").get()!.value));ack=reply;await deleteLocal('a');await deleteLocal('b');};
+    remoteSQL.length=0;localSQL.length=0;traffic.length=0;await server.cloud.syncNow('admin');
+    expect((await server.cloud.status('admin')).conflicts).toBeUndefined();expect(server.db.raw.prepare("SELECT count(*) n FROM user_cards WHERE user_id='admin'").get()!.n).toBe(0);
+    if(restoreOldConflict){
+      const row=ack.records.find((r:any)=>r.kind==='relations'&&r.value),sent=oldLink.deltaPending.sent.find((r:any)=>r.id===row.id);
+      oldLink.deltaPending.ack=ack;oldLink.deltaConflict={id:'saved-old-conflict',direction:'ack',values:[{kind:'relations',id:row.id,field:'deleted',before:sent.value,computer:row.value,phone:null}],records:ack.records,cursor:oldLink.remoteRevision,remoteRevision:ack.revision,localRevision:Number(server.db.raw.prepare("SELECT revision FROM user_library_meta WHERE user_id='admin'").get()!.revision)};
+      server.db.raw.prepare("UPDATE desktop_settings SET value=? WHERE key='website-sync:admin'").run(JSON.stringify(oldLink));expect((await server.cloud.status('admin')).phase).toBe('conflict');
+    }
+    await server.cloud.syncNow('admin');await server.cloud.syncNow('admin');
+    expect((await server.cloud.status('admin')).phase).toBe('idle');expect(remote.raw.prepare("SELECT count(*) n FROM user_cards WHERE user_id='admin'").get()!.n).toBe(0);expect(remote.raw.prepare("SELECT count(*) n FROM user_relations WHERE user_id='admin'").get()!.n).toBe(0);
+    expect(fullReads(remoteSQL)).toEqual([]);expect(fullReads(localSQL)).toEqual([]);expect(traffic.some(row=>row.path.endsWith('/snapshot')||row.path.endsWith('/connect'))).toBe(false);
+  });
+  it('真实网站编辑与上传期间本机删除仍保留冲突，不被自动重试清除',async()=>{
+    await edit('local',{summary_md:'本机新口述'});beforePush=async()=>edit('remote',{answer_md:'网站独立新讲解'});afterPush=async()=>deleteLocal('q');await server.cloud.syncNow('admin');
+    const first=await server.cloud.status('admin');expect(first.phase).toBe('conflict');expect(first.conflicts?.[0]).toMatchObject({kind:'cards',id:'q',field:'deleted',phone:null});
+    await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).conflicts).toEqual(first.conflicts);expect(server.db.raw.prepare("SELECT count(*) n FROM user_cards WHERE user_id='admin'").get()!.n).toBe(0);expect((await readLibrary(remote.asD1(),'admin')).cards[0].answer_md).toBe('网站独立新讲解');
+  });
   it('批量本机修改用分组回执上传，丢失回应后复用原结果且数据库调用不逐题增长',async()=>{
     const plan=await planRecordMerge(server.db.asD1(),'admin',importSchema.parse({schema_version:1,cards:Array.from({length:300},(_,index)=>({id:'batch-'+index,project_id:'p',title:'批量题 '+index,question:'具体问题？',summary_md:'短答案'}))}));await commitIncremental(server.db.asD1(),'admin',plan.revision,plan.changes);
     remoteSQL.length=0;traffic.length=0;loseAck=true;await server.cloud.syncNow('admin');expect((await server.cloud.status('admin')).pending).toBe(true);expect(remoteSQL.length).toBeLessThan(45);expect(fullReads(remoteSQL)).toEqual([]);

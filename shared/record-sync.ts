@@ -17,6 +17,8 @@ export function mergeRecords(current: SyncRecord[], changes: SyncChange[], now =
     const before = change.before ? schemas[change.kind].parse(change.before) as Entity : null;
     const after = change.after ? schemas[change.kind].parse(change.after) as Entity : null;
     if (before && before.id !== change.id || after && after.id !== change.id) throw new AppError(422, '同步记录 ID 不一致');
+    // A receipt that only confirms sent content must not resurrect a later local deletion.
+    if (sameRecord(before,after)) continue;
     const old = saved.get(key)?.value ?? null;
     const conflict = (field: string, a: unknown, b: unknown, c: unknown) => conflicts.push({kind:change.kind,id:change.id,field,before:a,computer:b,phone:c});
     let next: Entity | null = old;

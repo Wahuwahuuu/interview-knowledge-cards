@@ -42,7 +42,16 @@ export class CloudDeltaEngine<L extends BaseLink> {
       current.baseline=emptyLibrary();this.save(user,current);
     }));return true;
   }
+  /** Retry only an old acknowledgement with exactly the sent content; never choose a conflict side. */
+  private async retryUnchangedAcknowledgment(user:string,link:L){return this.locked(async()=>{
+    const current=this.get(user),pending=current?.deltaPending,ack=pending?.ack;
+    if(!current?.enabled||current.deviceId!==link.deviceId||current.deltaConflict?.id!==link.deltaConflict?.id||current.deltaConflict?.direction!=='ack'||!pending||!ack||ack.status!=='applied'||ack.id!==pending.operation.id||ack.epoch!==current.epoch)return;
+    const sent=recordMap(pending.sent);
+    if(!sent.size||ack.records.length!==sent.size||new Set(ack.records.map(recordKey)).size!==sent.size||ack.records.some(row=>!sent.has(recordKey(row))||!sameRecord(row.value,sent.get(recordKey(row))?.value)))return;
+    this.check(user,current);current.deltaConflict=undefined;this.save(user,current);return current;
+  });}
   async cycle(user:string,link:L){
+    if(link.deltaConflict){const retry=await this.retryUnchangedAcknowledgment(user,link);if(!retry)return;link=retry;}
     if(link.deltaPending){if(!await this.push(user,link))return;link=(await this.locked(async()=>this.get(user)))!;if(!link?.enabled||link.deltaConflict)return;}
     const page=await this.call<CloudDelta>(link,`pull?cursor=${link.remoteRevision}&epoch=${encodeURIComponent(link.epoch)}`);
     if(page.cursor<link.remoteRevision||page.cursor>page.revision||page.records.some(row=>row.revision===undefined||row.revision<=link.remoteRevision||row.revision>page.cursor))throw new AppError(502,'增量回执的同步位置不完整，现有修改仍保留','CLOUD_PROTOCOL');

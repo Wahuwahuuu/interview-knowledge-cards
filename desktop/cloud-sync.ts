@@ -176,7 +176,7 @@ export class DesktopCloudSync {
     try{
       let link=await this.locked(async()=>this.db.raw.prepare('SELECT status FROM users WHERE id=?').get(user)?.status==='active'?this.get(user):undefined);
       if(!link?.enabled||link.review||link.errorCode?.includes('EPOCH')||this.stopped)return;
-      if(link.protocol===2){if(this.epoch(user)!==link.localEpoch)throw new AppError(409,'本机题库已恢复备份，请重新核对','LOCAL_EPOCH_CHANGED');if(!link.deltaConflict)await this.delta.cycle(user,link);return;}
+      if(link.protocol===2){if(this.epoch(user)!==link.localEpoch)throw new AppError(409,'本机题库已恢复备份，请重新核对','LOCAL_EPOCH_CHANGED');await this.delta.cycle(user,link);return;}
       if(!link.inflight&&!link.conflict&&link.remoteRevision>=0&&await this.delta.initialize(user,link)){link=(await this.locked(async()=>this.get(user)))!;await this.delta.cycle(user,link);return;}
       await this.legacyCycle(user);link=await this.locked(async()=>this.get(user));
       if(link?.enabled&&!link.review&&!link.conflict&&!link.inflight&&!link.error&&link.remoteRevision>=0)await this.delta.initialize(user,link);
