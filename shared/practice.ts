@@ -56,6 +56,27 @@ export function practiceMainCards(library: Library, projectId?: string): Card[] 
   return roots;
 }
 
+/** A group needs review if its main question or any reachable, in-scope followup does. */
+export function practiceReviewIds(library: Library, projectId?: string): string[] {
+  const cards = practiceCards(library, projectId), byId = new Map(cards.map(card => [card.id, card]));
+  const parents = new Map<string, string[]>();
+  for (const relation of library.relations) {
+    if (relation.kind !== 'followup') continue;
+    const parent = byId.get(relation.from_card_id), child = byId.get(relation.to_card_id);
+    if (!parent || !child || parent.project_id !== child.project_id) continue;
+    if (!parents.has(child.id)) parents.set(child.id, []);
+    parents.get(child.id)!.push(parent.id);
+  }
+  const pending = cards.filter(card => card.mastery !== 'mastered').map(card => card.id);
+  const needsReview = new Set(pending);
+  // Propagate once through ancestors, including legacy cycles, rather than scanning every group.
+  for (let index = 0; index < pending.length; index++) for (const parentId of parents.get(pending[index]) ?? []) {
+    if (needsReview.has(parentId)) continue;
+    needsReview.add(parentId); pending.push(parentId);
+  }
+  return practiceMainCards(library, projectId).filter(card => needsReview.has(card.id)).map(card => card.id);
+}
+
 function shuffled(ids: string[], random: () => number): string[] {
   const result = [...ids];
   for (let i = result.length - 1; i > 0; i--) {
@@ -65,9 +86,14 @@ function shuffled(ids: string[], random: () => number): string[] {
   return result;
 }
 
-export function startPractice(ids: string[], mode: PracticeMode, random: () => number = Math.random): PracticeSession {
+function prioritizedShuffle(ids: string[], random: () => number, preferredIds: readonly string[]): string[] {
+  const choices = shuffled(ids, random), preferred = new Set(preferredIds);
+  return [...choices.filter(id => preferred.has(id)), ...choices.filter(id => !preferred.has(id))];
+}
+
+export function startPractice(ids: string[], mode: PracticeMode, random: () => number = Math.random, preferredIds: readonly string[] = []): PracticeSession {
   const orderedIds = [...new Set(ids)];
-  const choices = mode === 'random' ? shuffled(orderedIds, random) : orderedIds;
+  const choices = mode === 'random' ? prioritizedShuffle(orderedIds, random, preferredIds) : orderedIds;
   return { mode, ids: orderedIds, history: choices.length ? [choices[0]] : [], historyIndex: 0, remaining: choices.slice(1) };
 }
 
@@ -76,7 +102,7 @@ export function currentPracticeId(session: PracticeSession): string | undefined 
 }
 
 /** Keep a running session usable when cards are removed or followups become roots. */
-export function reconcilePractice(session: PracticeSession, ids: string[], random: () => number = Math.random): PracticeSession {
+export function reconcilePractice(session: PracticeSession, ids: string[], random: () => number = Math.random, preferredIds: readonly string[] = []): PracticeSession {
   const orderedIds = [...new Set(ids)];
   if (orderedIds.length === session.ids.length && orderedIds.every((id, index) => id === session.ids[index])) return session;
   if (!orderedIds.length) return { ...session, ids: [], history: [], historyIndex: 0, remaining: [] };
@@ -93,7 +119,7 @@ export function reconcilePractice(session: PracticeSession, ids: string[], rando
   const oldIndex = current ? session.ids.indexOf(current) : 0;
   const nextIndex = session.ids.slice(0, Math.max(oldIndex, 0)).filter(id => available.has(id)).length;
   const next = session.mode === 'random'
-    ? shuffled(remaining.length ? remaining : orderedIds, random)[0]
+    ? prioritizedShuffle(remaining.length ? remaining : orderedIds, random, preferredIds)[0]
     : orderedIds[Math.min(nextIndex, orderedIds.length - 1)];
   const history = visited.at(-1) === next ? visited : [...visited, next];
   return { ...session, ids: orderedIds, history, historyIndex: history.length - 1, remaining: remaining.filter(id => id !== next) };
@@ -111,7 +137,7 @@ export function canAdvancePractice(session: PracticeSession): boolean {
   return session.mode === 'random' ? session.ids.length > 1 : session.ids.indexOf(current) < session.ids.length - 1;
 }
 
-export function nextPractice(session: PracticeSession, random: () => number = Math.random): PracticeSession {
+export function nextPractice(session: PracticeSession, random: () => number = Math.random, preferredIds: readonly string[] = []): PracticeSession {
   if (!canAdvancePractice(session)) return session;
   const current = currentPracticeId(session)!;
   let next: string, remaining = session.remaining;
@@ -120,7 +146,7 @@ export function nextPractice(session: PracticeSession, random: () => number = Ma
   } else {
     const unvisited = remaining.filter(id => id !== current);
     const candidates = unvisited.length ? unvisited : session.ids.filter(id => id !== current);
-    const choices = shuffled(candidates, random);
+    const choices = prioritizedShuffle(candidates, random, preferredIds);
     next = choices[0];
     remaining = choices.slice(1);
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, Edit3, Folder, LayoutGrid, ListOrdered, RefreshCw, Shuffle, Trash2 } from 'lucide-react';
 import type { Card, Library } from '../shared/model';
-import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, previousPractice, reconcilePractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
+import { canAdvancePractice, currentPracticeId, nextPractice, practiceMainCards, practiceReviewIds, previousPractice, reconcilePractice, setPracticeMode, startPractice, type PracticeMode, type PracticeSession } from '../shared/practice';
 import { followupCards } from '../shared/followups';
 import { InlineMarkdown, Markdown } from './Markdown';
 import { SourceBadge } from './SourceBadge';
@@ -24,7 +24,7 @@ type Props = {
 function ModeToggle({ mode, onChange }: { mode: PracticeMode; onChange: (mode: PracticeMode) => void }) {
   return <div className="segmented practice-mode-toggle" role="group" aria-label="出题方式">
     <button className={mode === 'sequential' ? 'selected' : ''} aria-pressed={mode === 'sequential'} onClick={() => onChange('sequential')}><ListOrdered size={16} />顺序出题</button>
-    <button className={mode === 'random' ? 'selected' : ''} aria-pressed={mode === 'random'} onClick={() => onChange('random')}><Shuffle size={16} />随机出题</button>
+    <button className={mode === 'random' ? 'selected' : ''} aria-pressed={mode === 'random'} title="优先随机复习未掌握的问题组，包含追问" onClick={() => onChange('random')}><Shuffle size={16} />随机出题</button>
   </div>;
 }
 
@@ -38,7 +38,8 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
   const [followupId, setFollowupId] = useState<string | null>(null);
   const projectId = scope === 'project' ? selectedProjectId : undefined;
   const cards = useMemo(() => scope === 'project' && !selectedProjectId ? [] : practiceMainCards(library, projectId), [library, projectId, scope, selectedProjectId]);
-  useEffect(() => { setSession(value => value ? reconcilePractice(value, cards.map(card => card.id)) : null); }, [cards]);
+  const preferredIds = useMemo(() => cards.length ? practiceReviewIds(library, projectId) : [], [library, projectId, cards]);
+  useEffect(() => { setSession(value => value ? reconcilePractice(value, cards.map(card => card.id), Math.random, preferredIds) : null); }, [cards, preferredIds]);
   const root = session ? library.cards.find(value => value.id === currentPracticeId(session) && !value.archived) : undefined;
   const followups = useMemo(() => root ? followupCards(library, root.id, projectId) : [], [library, root?.id, projectId]);
   const followupIndex = followups.findIndex(value => value.id === followupId);
@@ -57,7 +58,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
   function start() {
     if (!cards.length) return;
     onScopeChange(projectId);
-    setSession(startPractice(cards.map(value => value.id), mode));
+    setSession(startPractice(cards.map(value => value.id), mode, Math.random, preferredIds));
     showQuestion();
   }
 
@@ -77,7 +78,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
         {!library.projects.length && <option value="">还没有题库</option>}
         {library.projects.map(project => <option key={project.id} value={project.id}>{project.name}（{practiceMainCards(library, project.id).length} 道主问题）</option>)}
       </select></label>}
-      <div><span className="muted">出题方式</span><ModeToggle mode={mode} onChange={changeMode} /></div>
+      <div><span className="muted">出题方式</span><ModeToggle mode={mode} onChange={changeMode} />{mode === 'random' && <p className="microcopy">本轮先随机复习含未掌握内容的组，再复习整组已掌握的题；追问未掌握时，从主问题开始。</p>}</div>
       <div className="button-row"><span className="muted">{scope === 'all' ? '全库' : selectedProject?.name ?? '所选题库'} · {cards.length} 道主问题</span><button className="primary" disabled={!cards.length} onClick={start}><BookOpen size={17} />开始发问<ArrowRight size={17} /></button></div>
       {!cards.length && <p className="microcopy practice-empty">{scope === 'all' ? '题库中还没有可复习的问题，请先添加或导入问题。' : '这个题库还没有可复习的问题，可以选择其他题库。'}</p>}
     </div>
@@ -106,7 +107,7 @@ export function PracticeView({ library, initialProjectId, offline, busy, editDis
       <div className="practice-actions">
         <button className="secondary" disabled={session.historyIndex === 0} onClick={() => { setSession(value => value ? previousPractice(value) : null); showQuestion(); }}><ArrowLeft size={16} />上一题</button>
         <div className="button-row"><button className="secondary" aria-pressed={card.mastery === 'review'} disabled={offline || busy} onClick={() => void onMark(card, 'review')}>再复习一下</button><button className="primary" aria-pressed={card.mastery === 'mastered'} disabled={offline || busy} onClick={() => void onMark(card, 'mastered')}><Check size={16} />已掌握</button></div>
-        <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value) : null); showQuestion(); }}>下一题<ArrowRight size={16} /></button>
+        <button className="secondary" disabled={!canAdvancePractice(session)} onClick={() => { setSession(value => value ? nextPractice(value, Math.random, preferredIds) : null); showQuestion(); }}>下一题<ArrowRight size={16} /></button>
       </div>
       {offline && <p className="microcopy centered">离线可阅读和翻卡；掌握状态需要联网保存。</p>}
     </> : <div className="empty-state"><BookOpen size={30} /><h3>{cards.length ? '这道题已不在复习范围内' : '当前范围已没有可复习的问题'}</h3><button className="secondary" onClick={() => setSession(null)}>重新选择复习范围</button></div>}
