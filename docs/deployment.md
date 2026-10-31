@@ -54,6 +54,6 @@ npm run build
 npm run deploy
 ```
 
-无需重复创建 Access 应用或数据库。部署前按 [备份指南](backup-restore.md) 导出个人题库；D1 schema 升级另保留完整数据库备份。发布工具拒绝 `APP_ENV=local`。GitHub CI 仅构建与本地验证，不部署，不使用生产凭证。
+无需再次创建 Access 应用或数据库。部署前按 [备份指南](backup-restore.md) 导出个人题库；D1 schema 升级另保留完整数据库备份。发布工具拒绝 `APP_ENV=local`。GitHub CI 仅构建与本地验证，不部署，不使用生产凭证。
 
 费用和额度以 [Workers](https://developers.cloudflare.com/workers/platform/pricing/) 与 [D1](https://developers.cloudflare.com/d1/platform/pricing/) 当前规则为准；脚本不自动开通付费计划。
